@@ -5,70 +5,71 @@ struct ControlsView: View {
     @State private var showPowerOffConfirm = false
     @State private var showPowerOnConfirm = false
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 4)
-
     var body: some View {
-        VStack(spacing: 6) {
-            // 3x4 button grid
-            LazyVGrid(columns: columns, spacing: 4) {
-                PanelButton("OPER", icon: "power", accent: vm.state.opStatus == "Oper" ? .orange : nil) {
-                    vm.sendCommand(.operate)
-                }
-                PanelButton("ANT", icon: "antenna.radiowaves.left.and.right") {
-                    vm.sendCommand(.antenna)
-                }
+        VStack(spacing: 4) {
+            // Row 1: Buttons that DON'T duplicate the tappable status chips
+            // above. INPUT / ANT / BAND / LEVEL(POWER) / OPER(MODE) are
+            // exposed via their chips, so we only keep panel-only actions
+            // here: TUNE, DISP, SET, CAT.
+            HStack(spacing: 4) {
                 PanelButton("TUNE", icon: "tuningfork") {
                     vm.sendCommand(.tune)
-                }
-                PanelButton("INPUT", icon: "cable.connector.horizontal") {
-                    vm.sendCommand(.input)
-                }
-
-                PanelButton("POWER", icon: "bolt.fill") {
-                    vm.sendCommand(.power)
-                }
-                PanelButton("BND -", icon: "minus") {
-                    vm.sendCommand(.bandDown)
-                }
-                PanelButton("BND +", icon: "plus") {
-                    vm.sendCommand(.bandUp)
                 }
                 PanelButton("DISP", icon: "display") {
                     vm.sendCommand(.display)
                 }
-
-                PanelButton("\u{25C0}", icon: "chevron.left") {
-                    vm.sendCommand(.leftArrow)
-                }
-                PanelButton("\u{25B6}", icon: "chevron.right") {
-                    vm.sendCommand(.rightArrow)
-                }
+                // CAT in the middle; SET pinned to the edge so it's the
+                // easiest button to hit (biggest mouse target on a
+                // right-edge hover).
                 PanelButton("CAT", icon: "point.3.connected.trianglepath.dotted") {
                     vm.sendCommand(.cat)
                 }
-                PanelButton("SET", icon: "gearshape") {
+                PanelButton("SET", icon: "gearshape",
+                            accent: vm.isInSetupMode ? .green : nil) {
                     vm.sendCommand(.set)
+                }
+            }
+
+            // Row 2: ATU tuning + menu navigation.
+            HStack(spacing: 4) {
+                PanelButton("\u{25C0}L", icon: "minus") {
+                    vm.sendCommand(.lMinus)
+                }
+                PanelButton("L\u{25B6}", icon: "plus") {
+                    vm.sendCommand(.lPlus)
+                }
+                PanelButton("\u{25C0}C", icon: "minus") {
+                    vm.sendCommand(.cMinus)
+                }
+                PanelButton("C\u{25B6}", icon: "plus") {
+                    vm.sendCommand(.cPlus)
+                }
+                PanelButton("\u{25C0}", icon: "chevron.left",
+                            accent: vm.isInSetupMode ? .green : nil) {
+                    vm.sendCommand(.leftArrow)
+                }
+                PanelButton("\u{25B6}", icon: "chevron.right",
+                            accent: vm.isInSetupMode ? .green : nil) {
+                    vm.sendCommand(.rightArrow)
                 }
             }
 
             // Power on/off
             HStack(spacing: 6) {
-                if vm.connectionMode == .websocket {
-                    Button {
-                        showPowerOnConfirm = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "power").font(.system(size: 10))
-                            Text("POWER ON").font(.system(size: 10, weight: .bold))
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 26)
+                Button {
+                    showPowerOnConfirm = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "power").font(.system(size: 10))
+                        Text("POWER ON").font(.system(size: 10, weight: .bold))
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green.opacity(0.8))
-                    .confirmationDialog("Power On the amplifier?", isPresented: $showPowerOnConfirm) {
-                        Button("Power On") { vm.powerOn() }
-                        Button("Cancel", role: .cancel) {}
-                    }
+                    .frame(maxWidth: .infinity, minHeight: 26)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green.opacity(0.8))
+                .confirmationDialog("Power On the amplifier?", isPresented: $showPowerOnConfirm) {
+                    Button("Power On") { vm.powerOn() }
+                    Button("Cancel", role: .cancel) {}
                 }
 
                 Button {
@@ -105,16 +106,18 @@ struct PanelButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(accent ?? .cyan)
                 Text(title)
-                    .font(.system(size: 7, weight: .semibold))
-                    .foregroundStyle(accent ?? Color(white: 0.55))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(accent ?? Color(white: 0.65))
                     .tracking(0.3)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .frame(maxWidth: .infinity, minHeight: 32)
+            .frame(maxWidth: .infinity, minHeight: 40)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color(white: 0.18))

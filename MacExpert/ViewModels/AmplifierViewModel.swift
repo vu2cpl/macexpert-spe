@@ -11,6 +11,195 @@ final class AmplifierViewModel {
     var detectedModel: AmplifierModel = .unknown
     var statusMessage: String = ""
     var errorMessage: String = ""
+    var antennaMap = AntennaMap()
+
+    // RCU capture pipeline (labeled 0x6A LCD packet logger).
+    // `var` (not `let`) so SwiftUI's @Bindable projection can drill into its
+    // observable properties (e.g. $vm.captureLogger.currentLabel).
+    var captureLogger = CaptureLogger()
+    var captureErrorMessage: String = ""
+
+    // Most recently parsed RCU display frame. Drives live cursor tracking,
+    // CONFIG checkbox state, etc.
+    var rcuFrame: RCUFrame?
+
+    /// Per-band antenna slot-1/slot-2 assignments learned from the ANTENNA
+    /// matrix screen. Keyed as `"A/160M"`, `"B/20M"`, etc. (bank letter +
+    /// band). Each value is `AntennaSlots` carrying both slot values.
+    /// Populated live as the user walks the cursor through bands — each
+    /// RCU frame on the antenna screen contributes up to 11 entries.
+    /// Persists across exits of the antenna menu.
+    var antennaMatrix: [String: AntennaSlots] = [:]
+
+    /// Last-known CAT manufacturer selected for the current input. Learned
+    /// by visiting the CAT sub-menu (cursor lands on the active one) or
+    /// the CAT baud rate screen (which prints the manufacturer directly).
+    /// Displayed as a status chip so the user can see the active CAT at a
+    /// glance without navigating into SETUP.
+    var cachedCatType: String = ""
+
+    /// Item names shown in the CAT sub-menu, in cursor nav order. Used to
+    /// map the cursor index on a `.catMenu` frame to the highlighted name.
+    private static let catMenuItems = [
+        "NONE", "ICOM", "KENWOOD", "YAESU", "TEN-TEC",
+        "FLEX", "ELECRAFT", "BAND DATA", "EXIT",
+    ]
+
+    /// Current BEEP state — tracked locally. Amp doesn't expose this in
+    /// CSV; we flip on each SET press while cursor is on BEEP. Nil until
+    /// the user has toggled it at least once in this session.
+    var beepOn: Bool? = nil
+
+    /// Current START mode — true == OPER, false == STBY. Same tracking
+    /// story as `beepOn`.
+    var startInOperate: Bool? = nil
+
+    /// The currently-active antenna's display string, e.g. "2" or "2t" or
+    /// "3b". Looks up the current bank+band in `antennaMatrix`, matches the
+    /// antenna number against slot 1 / slot 2, and appends the suffix
+    /// (b/t/r) if one is set. Falls back to the bare number when we don't
+    /// have matrix data for this band yet.
+    var txAntennaWithSuffix: String {
+        let num = state.txAntenna
+        guard !num.isEmpty, num != "0" else { return num }
+        let band = state.band.uppercased()
+        // Prefer the current bank's entry, but fall back to any bank that
+        // has this band mapped — the amp can be mid-transition where
+        // memBank isn't populated yet, and the suffix is the same per-band
+        // regardless of bank in practice.
+        let bank = state.memBank
+        let candidateKeys: [String] = {
+            var keys: [String] = []
+            if !bank.isEmpty { keys.append("\(bank)/\(band)") }
+            keys.append(contentsOf: antennaMatrix.keys.filter { $0.hasSuffix("/\(band)") })
+            return keys
+        }()
+        for key in candidateKeys {
+            guard let slots = antennaMatrix[key] else { continue }
+            for slot in [slots.slot1, slots.slot2] where slot.hasPrefix(num) {
+                return slot
+            }
+        }
+        return num
+    }
+
+    // MARK: - Local DISPLAY state
+    //
+    // The amp's LCD encodes backlight and contrast in an ambiguous way
+    // (different cap glyphs on each cell, direction can appear inverted,
+    // and there are "dead zones" at mid-range). Rather than fight the
+    // decoder, we track our own counter. Each L+/L-/C+/C- press in the
+    // DISPLAY screen moves the counter and sends the matching command
+    // to the amp, so a user driving everything from the app sees smooth
+    // 0..16 motion through the full 17-level range.
+    //
+    // Trade-off: if the user also presses physical L/C buttons on the amp
+    // panel, our counter drifts from the amp's true state until the next
+    // app-driven change. Acceptable per UX design.
+    var localBacklightLevel: Int = 8  // Midpoint; first use starts here.
+    var localContrastLevel: Int = 8
+
+    static let displayLevelMin = 0
+    static let displayLevelMax = 16
+
+    /// Total RCU frames the parser has accepted since connect. Debug counter.
+    var rcuFrameCount: Int = 0
+    /// Total RCU frames received at the connection callback (before parse).
+    /// If this climbs but rcuFrameCount doesn't, parse is rejecting frames.
+    var rcuCallbackCount: Int = 0
+    /// Most recent RCU callback timestamp — "ages" to show freshness.
+    var rcuLastCallbackAt: Date?
+    /// Number of RCU OFF→ON ticker cycles sent. If this climbs but
+    /// `rcuCallbackCount` doesn't, the amp isn't responding to our cycles.
+    var rcuTicksSent: Int = 0
+
+    /// Who "owns" the RCU stream right now. Both the Capture pane and SETUP
+    /// mode want to hold RCU on; whichever turned it on is responsible for
+    /// turning it off, so the other flow doesn't get stranded.
+    enum RCUOwner: String { case none, capture, setupMode }
+    var rcuOwner: RCUOwner = .none
+
+    /// Timestamp of most recent entry into SETUP mode. Used to suppress
+    /// auto-exit on the first few frames (the amp can briefly flash a
+    /// stale OP frame while processing the SET that entered SETUP).
+    private var setupEnteredAt: Date?
+
+    /// True while the amp is (believed to be) actively running an ATU tune.
+    /// Drives the TUNE LED indicator. Currently set only on app-initiated
+    /// TUNE presses and auto-cleared after the tune timeout; physical
+    /// TUNE-button presses on the amp aren't detected yet — we need a
+    /// reliable amp-side signal for that.
+    var isTuningInProgress: Bool = false
+    private var tuneTimeoutTask: Task<Void, Never>?
+
+    /// How long to keep the TUNE LED lit after an app-initiated tune press.
+    /// Matches the amp's own tune-timeout (roughly).
+    private let tuneTimeoutDuration: TimeInterval = 5
+
+    /// Timestamp of the most recent cursor-navigation command we sent to
+    /// the amp (◀ / ▶). Used to suppress RCU-driven cursor overwrites for
+    /// a short window after the press — otherwise a stale RCU frame that
+    /// hasn't seen our command yet will bounce the cursor back to the old
+    /// position, feeling laggy on fast double-taps.
+    private var lastNavCommandAt: Date?
+    /// How long to ignore RCU cursor updates after we send a nav command.
+    /// Needs to be long enough to cover (serial RTT) + (amp processing) +
+    /// (ticker interval); 600 ms covers the 400 ms tick with headroom.
+    private let navSuppressionWindow: TimeInterval = 0.6
+
+    // MARK: - Setup Mode
+    var isInSetupMode = false
+    var setupCursorIndex = 0
+    var activeSubMenu: SetupSubMenu? = nil
+    var subMenuCursorIndex = 0
+
+    enum SetupSubMenu: String, CaseIterable {
+        case config, antenna, cat, manualTune
+        case display, beep, start, tempFans
+        case alarmsLog, tunAnt, rxAnt
+        case yaesuModel            // Nested: CAT → YAESU → 14 models
+        case tenTecModel           // Nested: CAT → TEN-TEC → 4 models
+        case baudRate              // Final CAT sub-menu: 8 speed choices
+        case tunAntPort            // Nested TUN ANT → PORT config
+
+        /// Number of navigable items in each sub-menu
+        var itemCount: Int {
+            switch self {
+            case .config: return 6      // BNK A, BNK B, REMOTE ANT, SO2R, COMBINER, SAVE
+            case .antenna: return 23    // 11 bands x 2 slots + SAVE
+            case .cat: return 9         // NONE, ICOM, KENWOOD, YAESU, TEN-TEC, FLEX, ELCRAFT, BAND DATA, EXIT
+            case .manualTune: return 0  // Uses L±/C± buttons directly
+            case .display: return 0     // Uses L±/C± buttons directly
+            case .beep: return 0        // Toggle only
+            case .start: return 0       // Toggle only
+            case .tempFans: return 3    // TEMP SCALE, FAN MGMT, SAVE
+            case .tunAnt: return 6      // ANT1-4, PORT, SAVE
+            case .rxAnt: return 4       // ANT2-4, SAVE
+            case .alarmsLog: return 0   // Scroll with arrows, SET to quit
+            case .yaesuModel: return 14
+            case .tenTecModel: return 4
+            case .baudRate: return 8
+            case .tunAntPort: return 8    // Only the 8 baud rates are cursor-selectable; left-side fields are display-only.
+            }
+        }
+    }
+
+    /// Menu items in navigation order (column-first: down each column, then next column)
+    /// Column 1: CONFIG, ANTENNA, CAT, MANUAL TUNE
+    /// Column 2: DISPLAY, BEEP, START, TEMP/FANS
+    /// Column 3: ALARMS LOG, TUN ANT, RX ANT, EXIT
+    static let setupMenuItems = [
+        "CONFIG", "ANTENNA", "CAT", "MANUAL TUNE",
+        "DISPLAY", "BEEP", "START", "TEMP/FANS",
+        "ALARMS LOG", "TUN ANT", "RX ANT", "EXIT",
+    ]
+
+    /// Map navigation index to grid position (row, column) for display
+    static let setupNavToGrid: [(row: Int, col: Int)] = [
+        (0, 0), (1, 0), (2, 0), (3, 0),  // Column 1
+        (0, 1), (1, 1), (2, 1), (3, 1),  // Column 2
+        (0, 2), (1, 2), (2, 2), (3, 2),  // Column 3
+    ]
 
     // Serial settings
     var selectedPortPath: String = "" {
@@ -56,6 +245,19 @@ final class AmplifierViewModel {
                         self?.isConnected = connected
                         self?.statusMessage = connected ? "Connected (Serial)" : "Disconnected"
                     }
+                    serial.onRCUDisplayPacket = { [weak self] packet in
+                        guard let self else { return }
+                        self.rcuCallbackCount += 1
+                        self.rcuLastCallbackAt = Date()
+                        self.captureLogger.append(packet: [UInt8](packet))
+                        self.handleRCUFrame(packet)
+                    }
+                    serial.onRawBytes = { [weak self] chunk in
+                        self?.captureLogger.appendRaw(bytes: chunk)
+                    }
+                    serial.onRCUTick = { [weak self] in
+                        self?.rcuTicksSent += 1
+                    }
                     connection = serial
                     try await serial.connect()
 
@@ -85,23 +287,307 @@ final class AmplifierViewModel {
     }
 
     func disconnect() {
+        // Make sure any in-flight capture is flushed and RCU is left off.
+        if captureLogger.isRunning {
+            stopCapture()
+        }
+        // If SETUP mode owns RCU, release it too so the next session starts
+        // with the amp in CSV polling.
+        if rcuOwner == .setupMode {
+            exitSetupRCU()
+        }
         connection?.disconnect()
         connection = nil
         isConnected = false
         statusMessage = "Disconnected"
+        rcuFrame = nil
+    }
+
+    // MARK: - RCU Capture
+
+    /// Open a capture file and start writing every incoming 0x6A frame to
+    /// it. The RCU ticker is already running (it's always-on while connected),
+    /// so no RCU lifecycle work is needed here.
+    func startCapture(label: String) {
+        captureErrorMessage = ""
+        do {
+            _ = try captureLogger.start(label: label)
+        } catch {
+            captureErrorMessage = "Couldn't open capture file: \(error.localizedDescription)"
+            return
+        }
+        if rcuOwner == .none { rcuOwner = .capture }
+    }
+
+    /// Close the capture file. RCU stays on — it's always on while connected.
+    func stopCapture() {
+        if rcuOwner == .capture { rcuOwner = .none }
+        captureLogger.stop()
+    }
+
+    /// Force the amp to emit one fresh frame (useful after a label change
+    /// in Capture — the next tick will also produce one within ~400 ms, so
+    /// this is optional).
+    func grabOneFrame() {
+        guard captureLogger.isRunning, connection is SerialConnection else { return }
+        Task { [weak self] in
+            self?.connection?.sendCommand(.rcuOff)
+            try? await Task.sleep(for: .milliseconds(80))
+            self?.connection?.sendCommand(.rcuOn)
+        }
+    }
+
+    // MARK: - RCU in SETUP mode
+
+    /// Record entry into SETUP mode for the auto-exit grace period. RCU is
+    /// always on while connected, so there's no hardware toggle to do here.
+    private func enterSetupRCU() {
+        setupEnteredAt = Date()
+        if rcuOwner == .none { rcuOwner = .setupMode }
+    }
+
+    /// Walk the cursor through all 11 bands on the ANTENNA matrix screen to
+    /// populate `antennaMatrix` with every band's slot-1 value.
+    ///
+    /// Preconditions:
+    ///   - user must already be on the ANTENNA screen (activeSubMenu == .antenna)
+    ///   - serial connection is live
+    ///
+    /// Strategy:
+    ///   - Press LEFT 12 times to guarantee cursor wraps back to the first band.
+    ///   - For each of 11 bands: wait briefly, then press RIGHT.
+    ///   - Each frame between keypresses fills one map entry via handleRCUFrame.
+    var isScanningAntennaMatrix: Bool = false
+
+    func scanAntennaMatrix() {
+        guard activeSubMenu == .antenna,
+              connection is SerialConnection,
+              !isScanningAntennaMatrix else { return }
+        isScanningAntennaMatrix = true
+        Task { [weak self] in
+            defer { Task { @MainActor in self?.isScanningAntennaMatrix = false } }
+            // Rewind to start: 12 left presses (> 11 bands) ensures we land
+            // on the first band no matter where the cursor is now.
+            for _ in 0..<12 {
+                await MainActor.run { self?.connection?.sendCommand(.leftArrow) }
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            // Walk right through all 11 bands; each step triggers a new RCU
+            // frame which handleRCUFrame uses to populate antennaMatrix.
+            for _ in 0..<11 {
+                try? await Task.sleep(for: .milliseconds(450))  // let the frame arrive
+                await MainActor.run { self?.connection?.sendCommand(.rightArrow) }
+            }
+            try? await Task.sleep(for: .milliseconds(450))  // final frame
+        }
+    }
+
+    /// Manually force the amp to emit a fresh frame NOW. RCU is already
+    /// running, so this is just an out-of-cycle OFF→ON to get an immediate
+    /// snapshot without waiting for the next 400 ms tick.
+    func syncFromAmp() {
+        guard connection is SerialConnection else { return }
+        Task { [weak self] in
+            self?.connection?.sendCommand(.rcuOff)
+            try? await Task.sleep(for: .milliseconds(120))
+            self?.connection?.sendCommand(.rcuOn)
+        }
+    }
+
+    /// Release SETUP ownership marker. RCU stays on — it's always on while
+    /// connected now.
+    private func exitSetupRCU() {
+        guard rcuOwner == .setupMode else { return }
+        rcuOwner = .none
     }
 
     func sendCommand(_ command: SPECommand) {
+        // Note the time of cursor-nav commands so handleRCUFrame can
+        // ignore stale RCU-frame cursor values that haven't caught up yet.
+        if command == .leftArrow || command == .rightArrow {
+            lastNavCommandAt = Date()
+        }
+        // Light the TUNE LED for the duration of an app-initiated tune.
+        if command == .tune {
+            isTuningInProgress = true
+            tuneTimeoutTask?.cancel()
+            tuneTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(self?.tuneTimeoutDuration ?? 5))
+                await MainActor.run { self?.isTuningInProgress = false }
+            }
+        }
+        // Track local DISPLAY-screen brightness/contrast counter so the
+        // app's bars stay perfectly smooth regardless of the amp's
+        // ambiguous LCD encoding.
+        if activeSubMenu == .display {
+            switch command {
+            case .lPlus:  localBacklightLevel = min(Self.displayLevelMax, localBacklightLevel + 1)
+            case .lMinus: localBacklightLevel = max(Self.displayLevelMin, localBacklightLevel - 1)
+            case .cPlus:  localContrastLevel  = min(Self.displayLevelMax, localContrastLevel + 1)
+            case .cMinus: localContrastLevel  = max(Self.displayLevelMin, localContrastLevel - 1)
+            default: break
+            }
+        }
+        // Track setup mode state
+        if let subMenu = activeSubMenu {
+            // Inside a sub-menu
+            if command == .set {
+                // Check if cursor is on SAVE/EXIT/QUIT item (last item)
+                let lastIndex = subMenu.itemCount - 1
+                if subMenu.itemCount == 0 || subMenuCursorIndex >= lastIndex {
+                    // Exit sub-menu back to main setup menu
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        activeSubMenu = nil
+                        subMenuCursorIndex = 0
+                    }
+                }
+            } else if subMenu.itemCount > 0 {
+                switch command {
+                case .rightArrow:
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        subMenuCursorIndex = (subMenuCursorIndex + 1) % subMenu.itemCount
+                    }
+                case .leftArrow:
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        subMenuCursorIndex = (subMenuCursorIndex - 1 + subMenu.itemCount) % subMenu.itemCount
+                    }
+                default:
+                    break
+                }
+            }
+            connection?.sendCommand(command)
+            return
+        }
+
+        if command == .set {
+            if !isInSetupMode {
+                // The amp's firmware only allows SETUP entry from STANDBY —
+                // pressing SET in OPERATE is a no-op on the amp. Mirror that
+                // here so MacExpert doesn't appear to enter a mode the amp
+                // can't actually be in.
+                guard state.opStatus != "Oper" else {
+                    errorMessage = "SETUP is only available in STANDBY mode."
+                    // Auto-clear after 3s so it doesn't linger.
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(3))
+                        await MainActor.run {
+                            if self?.errorMessage == "SETUP is only available in STANDBY mode." {
+                                self?.errorMessage = ""
+                            }
+                        }
+                    }
+                    return  // don't send the command either
+                }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isInSetupMode = true
+                    setupCursorIndex = 0
+                }
+                // Entering SETUP: take RCU ownership so physical amp-panel
+                // navigation flows back to our UI.
+                enterSetupRCU()
+            } else {
+                // SET pressed on a menu item — enter sub-menu or exit
+                let exitIndex = Self.setupMenuItems.count - 1
+                if setupCursorIndex == exitIndex {
+                    // EXIT
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isInSetupMode = false
+                        activeSubMenu = nil
+                    }
+                    exitSetupRCU()
+                } else {
+                    // Enter the sub-menu for the current item
+                    let subMenu = subMenuForIndex(setupCursorIndex)
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        activeSubMenu = subMenu
+                        subMenuCursorIndex = initialCursorForSubMenu(subMenu)
+                    }
+                    // BEEP (5) / START (6) are in-place toggles — flip our
+                    // local mirror so the SETUP grid shows the new state
+                    // next to the item name. Nil → true on first press, so
+                    // the user sees confirmation that MacExpert caught the
+                    // SET even before they know the real starting state.
+                    if setupCursorIndex == 5 {
+                        beepOn = !(beepOn ?? false)
+                    } else if setupCursorIndex == 6 {
+                        startInOperate = !(startInOperate ?? false)
+                    }
+                }
+            }
+        } else if isInSetupMode {
+            switch command {
+            case .rightArrow:
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    setupCursorIndex = (setupCursorIndex + 1) % Self.setupMenuItems.count
+                }
+            case .leftArrow:
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    setupCursorIndex = (setupCursorIndex - 1 + Self.setupMenuItems.count) % Self.setupMenuItems.count
+                }
+            default:
+                break
+            }
+        }
         connection?.sendCommand(command)
     }
 
-    /// Power on via WebSocket (DTR toggle, only available in WS mode via spe-remote)
+    func exitSubMenu() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            activeSubMenu = nil
+            subMenuCursorIndex = 0
+        }
+    }
+
+    func exitSetupMode() {
+        isInSetupMode = false
+        activeSubMenu = nil
+        setupCursorIndex = 0
+        exitSetupRCU()
+    }
+
+    private func initialCursorForSubMenu(_ subMenu: SetupSubMenu?) -> Int {
+        guard let subMenu else { return 0 }
+        switch subMenu {
+        case .config:
+            // Start on BNK B (index 1) if bank B is active, else BNK A (index 0)
+            return (state.memBank == "B" || state.memBank == "x") ? 1 : 0
+        case .tunAnt:
+            // Start on the currently-selected antenna (ANT1-4) so the user
+            // is positioned on the antenna the amp would actually tune if
+            // they pressed TUNE right now. state.antenna is "1".."4";
+            // cursor indices 0-3 map directly to ANT1-ANT4.
+            if let n = Int(state.txAntenna), (1...4).contains(n) {
+                return n - 1
+            }
+            return 0
+        default:
+            return 0
+        }
+    }
+
+    private func subMenuForIndex(_ index: Int) -> SetupSubMenu? {
+        // BEEP (index 5) and START (index 6) are toggles on the amp —
+        // pressing SET on them just flips the setting, no sub-menu opens.
+        // Returning nil here lets the SET handler treat them as
+        // "forward the key press and stay on the root SETUP screen".
+        let subMenus: [SetupSubMenu?] = [
+            .config, .antenna, .cat, .manualTune,
+            .display, nil, nil, .tempFans,
+            .alarmsLog, .tunAnt, .rxAnt, nil, // EXIT has no sub-menu
+        ]
+        guard index < subMenus.count else { return nil }
+        return subMenus[index]
+    }
+
+    /// Power on the amplifier (DTR toggle for serial, command for WebSocket).
     func powerOn() {
-        guard connectionMode == .websocket, let ws = connection as? WebSocketConnection else {
-            errorMessage = "Power On only available via WebSocket"
+        guard let connection else {
+            errorMessage = "Not connected"
             return
         }
-        ws.sendRawCommand("power_on")
+        Task {
+            await connection.powerOn()
+        }
     }
 
     func powerOff() {
@@ -123,6 +609,205 @@ final class AmplifierViewModel {
 
     // MARK: - Private
 
+    /// Parse an incoming 0x6A RCU display payload and sync UI state from it.
+    /// Called for every frame received while RCU is active (whether SETUP or
+    /// Capture owns the stream).
+    private func handleRCUFrame(_ data: Data) {
+        guard let frame = RCUFrame.parse(data) else { return }
+        rcuFrame = frame
+        rcuFrameCount += 1
+
+        // Take bank letter from the frame — it's direct from the amp's LCD
+        // so it's the freshest source of truth while we're in RCU mode.
+        if let letter = frame.bankLetter {
+            state.memBank = String(letter)
+        }
+
+        // Suppress cursor updates from RCU frames for a short window after
+        // the user pressed ◀/▶ in the app — otherwise a stale RCU frame
+        // (from before the amp processed our nav command) will bounce the
+        // cursor back to the old position.
+        let suppressCursor = lastNavCommandAt.map {
+            Date().timeIntervalSince($0) < navSuppressionWindow
+        } ?? false
+
+        switch frame.screen {
+        case .setupRoot:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = nil
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < Self.setupMenuItems.count {
+                    setupCursorIndex = idx
+                }
+            }
+
+        case .catMenu:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .cat
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.cat.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+            // The cursor lands on the currently-selected CAT on entry —
+            // cache it so the CAT status chip has a value without waiting
+            // for a baud rate frame.
+            if let idx = frame.gridCursorNavIndex,
+               idx >= 0 && idx < Self.catMenuItems.count - 1 /* skip EXIT */ {
+                cachedCatType = Self.catMenuItems[idx]
+            }
+
+        case .config:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .config
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.config.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+
+        case .antennaMatrix:
+            isInSetupMode = true
+            activeSubMenu = .antenna
+            // The amp's matrix view renders every band's (slot1, slot2) in
+            // one frame. Parse the whole thing and update the map.
+            //
+            // We used to skip cursored bands that showed "NO NO", assuming
+            // that was a cursor overlay masking the real values. In
+            // practice the amp's LCD always displays the *live* value in
+            // the cell (including the cursor's pending selection), so
+            // skipping made legitimate NO-NO selections and mid-edit
+            // previews invisible until the user navigated elsewhere. The
+            // fix is to always trust the LCD text — update every band's
+            // slot pair on every matrix frame.
+            if let bank = frame.bankLetter, let matrix = frame.antennaMatrixValues {
+                for (band, slots) in matrix {
+                    antennaMatrix["\(bank)/\(band)"] = slots
+                }
+            }
+
+        case .display:
+            isInSetupMode = true
+            activeSubMenu = .display
+
+        case .alarmsLog:
+            isInSetupMode = true
+            activeSubMenu = .alarmsLog
+
+        case .tempFans:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .tempFans
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.tempFans.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+
+        case .manualTune:
+            isInSetupMode = true
+            activeSubMenu = .manualTune
+
+        case .rxAnt:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .rxAnt
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.rxAnt.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+
+        case .tunAnt:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .tunAnt
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.tunAnt.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+
+        case .opStandby, .opOperate, .antennaNotAvailable:
+            // The amp drops to the main screen (standby or operate) after
+            // SAVE or EXIT in any sub-menu — that's our signal to take
+            // MacExpert out of SETUP mode too. But ignore these frames for
+            // the first 800ms after entering SETUP: the amp can briefly
+            // flash a stale frame while it's still processing the SET
+            // command that put us in SETUP, and we don't want to bounce
+            // right back out.
+            let justEntered = setupEnteredAt.map { Date().timeIntervalSince($0) < 0.4 } ?? false
+            if isInSetupMode && !justEntered {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isInSetupMode = false
+                    activeSubMenu = nil
+                }
+                exitSetupRCU()
+            }
+
+        case .yaesuModel:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .yaesuModel
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.yaesuModel.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+
+        case .tenTecModel:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .tenTecModel
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.tenTecModel.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+
+        case .baudRate:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .baudRate
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.baudRate.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+            // The baud rate screen prints "CAT: YAESU" (etc) — freshen the
+            // cache so it survives even if user skips the CAT menu.
+            if let cat = frame.baudRateCatType, !cat.isEmpty {
+                cachedCatType = cat
+            }
+
+        case .tunAntPort:
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isInSetupMode = true
+                activeSubMenu = .tunAntPort
+                if !suppressCursor,
+                   let idx = frame.gridCursorNavIndex,
+                   idx < SetupSubMenu.tunAntPort.itemCount {
+                    subMenuCursorIndex = idx
+                }
+            }
+
+        case .unknown:
+            break
+        }
+    }
+
     private func handleStateUpdate(_ newState: AmplifierState) {
         state = newState
 
@@ -133,6 +818,22 @@ final class AmplifierViewModel {
                 detectedModel = model
             }
         }
+
+        // Auto-learn antenna mapping from status
+        antennaMap.learn(
+            band: newState.band,
+            antenna: newState.txAntenna,
+            atu: newState.atuStatus
+        )
+
+        // Physical TUNE-button detection: not currently implemented.
+        // The SPE CSV protocol (per the Application Programmer's Guide)
+        // exposes no dedicated "tune in progress" bit. Warning code "W"
+        // (TUNING WITH NO POWER) only appears when the user pressed TUNE
+        // but no RF drive arrived — so a successful tune never raises it,
+        // making "W" unreliable as a tune-running signal. For now the
+        // TUNE LED is driven exclusively by the app-initiated 5s timer
+        // set in `sendCommand(.tune)`.
     }
 
     private func loadSettings() {

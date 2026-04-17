@@ -23,6 +23,8 @@ enum SPECommand: UInt8, CaseIterable {
     case leftArrow   = 0x0F
     case rightArrow  = 0x10
     case set         = 0x11
+    case rcuOn       = 0x80
+    case rcuOff      = 0x81
     case backlightOn = 0x82
     case backlightOff = 0x83
     case status      = 0x90
@@ -47,6 +49,8 @@ enum SPECommand: UInt8, CaseIterable {
         case .leftArrow: "left"
         case .rightArrow: "right"
         case .set: "set"
+        case .rcuOn: "rcu_on"
+        case .rcuOff: "rcu_off"
         case .backlightOn: "backlight_on"
         case .backlightOff: "backlight_off"
         case .status: "status"
@@ -72,6 +76,8 @@ enum SPECommand: UInt8, CaseIterable {
         case .leftArrow: "LEFT"
         case .rightArrow: "RIGHT"
         case .set: "SET"
+        case .rcuOn: "RCU ON"
+        case .rcuOff: "RCU OFF"
         case .backlightOn: "BL ON"
         case .backlightOff: "BL OFF"
         case .status: "STATUS"
@@ -210,6 +216,11 @@ enum SPEProtocol {
             modelId: id
         )
     }
+
+    // NOTE: The 1K-FA binary status parser (`parseBinaryStatus`,
+    // `findBinaryStatusPacket`) was removed. The 1.5K-FA doesn't send the
+    // documented 30-byte binary format; its RCU mode produces the
+    // 367-byte 0x6A LCD display frame instead, parsed by `RCUFrame`.
 
     /// Extract the status CSV data from a raw serial response.
     /// Strips the 0xAA 0xAA 0xAA sync + length byte prefix and checksum/CRLF suffix.

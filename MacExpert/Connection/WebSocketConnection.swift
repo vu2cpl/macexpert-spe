@@ -6,6 +6,12 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
     var isConnected: Bool = false
     var onStateUpdate: ((AmplifierState) -> Void)?
     var onConnectionChange: ((Bool) -> Void)?
+    /// Not currently emitted — RCU display packets aren't proxied through spe-remote yet.
+    var onRCUDisplayPacket: ((Data) -> Void)?
+    /// Not currently emitted — raw byte stream isn't exposed by spe-remote.
+    var onRawBytes: ((Data) -> Void)?
+    /// Not currently emitted — no RCU ticker in WebSocket mode.
+    var onRCUTick: (() -> Void)?
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
@@ -78,6 +84,10 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
                 print("WebSocket send error: \(error.localizedDescription)")
             }
         }
+    }
+
+    func powerOn() async {
+        sendRawCommand("power_on")
     }
 
     /// Send a raw string command (for power_on which isn't in SPECommand).

@@ -116,3 +116,8 @@ struct AmplifierState: Equatable, Codable {
     var drainValue: Double { num(drain) }
     var tempValue: Double { num(paTemp) }
 }
+
+// NOTE: The 1K-FA binary status / `DisplayContext` structure that used to
+// live here has been removed. The 1.5K-FA uses the proprietary 0x6A RCU
+// display packet instead; that's parsed by `RCUFrame`. See
+// reference_spe_rcu_protocol.md for details.
