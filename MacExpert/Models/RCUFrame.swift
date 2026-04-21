@@ -785,6 +785,12 @@ enum DetectedScreen: String, Equatable {
     case opStandby        // Main screen in STANDBY (logo / welcome text in header)
     case opOperate        // Main screen in OPERATE (power-scale tick marks 0/125/250/375/500 in header)
     case antennaNotAvailable
+    /// Read-only info screens brought up by CAT / DISP button presses on
+    /// the main screen. The amp cycles through several (CAT settings,
+    /// system info, serial number, BIAS CHECK, etc.) as the user keeps
+    /// pressing. We render them as a generic decoded-LCD-text block
+    /// since they have no cursor and no editable fields.
+    case infoScreen
     case unknown
 
     /// Either of the two main operate screens (standby or operate). Both
@@ -823,6 +829,35 @@ enum DetectedScreen: String, Equatable {
         if h.contains("other setting")        { return .config }
 
         let u = upperRegion.lowercased()
+
+        // CAT / DISP info screens — no cursor, just read-only panels
+        // brought up by repeated CAT / DISP presses in STANDBY/OPERATE.
+        // Match distinctive headers reported in the memory:
+        //   STANDBY + CAT:  "CAT SETTINGS", "SYSTEM INFO", "FIRMWARE"
+        //   STANDBY + DISP: "SERIAL NUMBER", "HARDWARE NUMBER", "CAL"
+        //   OPERATE + CAT:  "BIAS CHECK"
+        //   OPERATE + DISP: fan/SWR/temp overview (header TBD).
+        //
+        // Some info screens (notably the DISP cycle) put their title in
+        // the BODY rather than the header row, so scan both. This runs
+        // *before* the STANDBY/OPERATE classifiers below because those
+        // use broad markers like "EXPERT" which the serial-number info
+        // screen also contains.
+        // DISP info screens on the 1.5K-FA overlay the standby body with
+        // a small key:value suffix — "SN:0656", "HW: 026", "CAL:002" —
+        // rather than replacing the whole screen. Match those colon-form
+        // markers alongside the proper-name CAT info headers.
+        let infoMarkers = [
+            "cat setting", "system info", "firmware",
+            "serial number", "hardware number",
+            "sn:", "hw:", "cal:",
+            "bias check", "release", "fw ver", "hw ver",
+        ]
+        for marker in infoMarkers {
+            if h.contains(marker) || u.contains(marker) {
+                return .infoScreen
+            }
+        }
 
         // STANDBY main screen: "EXPERT K-FA / SOLID STATE / FULLY
         // AUTOMATIC / STANDBY" appears at around bytes 64-160.

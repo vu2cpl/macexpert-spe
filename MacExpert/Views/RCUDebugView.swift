@@ -49,6 +49,15 @@ struct RCUDebugView: View {
                     if let f = frame {
                         row("screen",     f.screen.rawValue)
                         row("header",     quote(f.header))
+                        // Show the decoded body (bytes 32-191) on any
+                        // screen that isn't already being pulled apart
+                        // above. Makes it cheap to diagnose mis-classified
+                        // frames — you can read what the amp actually
+                        // rendered and tell me what marker to add.
+                        if f.screen == .opStandby || f.screen == .opOperate
+                           || f.screen == .infoScreen || f.screen == .unknown {
+                            row("body 32-191", quote(decodeRegion(bytes: f.raw, range: 32..<192)))
+                        }
                         row("footer",     quote(f.footer))
                         row("bankLetter", f.bankLetter.map { String($0) } ?? "—")
                         row("gridCursor", f.gridCursorNavIndex.map { String($0) } ?? "—")

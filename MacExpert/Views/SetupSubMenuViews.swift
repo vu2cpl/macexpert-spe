@@ -927,3 +927,158 @@ struct AlarmsLogSubMenuView: View {
         }
     }
 }
+
+// MARK: - CAT / DISP Info Screen (read-only LCD mirror)
+//
+// Triggered by CAT or DISP button presses in STANDBY / OPERATE. The amp
+// cycles through several screens (CAT settings, system info, serial
+// number, BIAS CHECK, etc.) with further presses; each sends a fresh
+// RCU frame with a different header. We render the decoded LCD rows
+// verbatim — no cursor, no tap targets. Once we understand the layouts
+// better we can add structured fields per screen type.
+
+struct InfoScreenView: View {
+    @Environment(AmplifierViewModel.self) private var vm
+
+    var body: some View {
+        // Title comes from the parsed header row (authoritative); body
+        // segments are everything below it.
+        let rawTitle = vm.infoScreenTitle.trimmingCharacters(in: .whitespaces)
+        let title = rawTitle.isEmpty ? "INFO" : rawTitle
+        let body = vm.infoScreenLines
+        let isCatReport = title.uppercased().contains("CAT SETTING")
+
+        LCDContainer(
+            title: title,
+            subtitle: "",
+            hintLeft: "[CAT/DISP]: NEXT",
+            hintRight: "Press again to exit"
+        ) {
+            if isCatReport {
+                catReportLayout(body)
+            } else {
+                VStack(alignment: .center, spacing: 4) {
+                    ForEach(Array(body.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 14, weight: .medium, design: .monospaced))
+                            .foregroundStyle(LCDStyle.green)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    /// CAT SETTING REPORT is split between two CAT inputs side-by-side on
+    /// the amp's LCD. Segments arrive in row-major order:
+    ///   [INPUT 1, INPUT 2, CAT : ..., CAT : ..., TYPE: ..., RATE: ...]
+    /// The first two pairs are left/right; anything after the CAT-line
+    /// pair belongs to whichever input actually has a configured radio
+    /// (TYPE/RATE only make sense for a non-NONE CAT). Render as two
+    /// independent columns with a vertical divider.
+    /// Build per-column line arrays from the segments list. Extracted
+    /// from the body so the ViewBuilder below stays pure-expression.
+    private func catReportColumns(_ segments: [String]) -> (left: [String], right: [String]) {
+        var leftLines: [String] = []
+        var rightLines: [String] = []
+
+        let pairCount = min(2, segments.count / 2)
+        for pairIndex in 0..<pairCount {
+            leftLines.append(segments[pairIndex * 2])
+            rightLines.append(segments[pairIndex * 2 + 1])
+        }
+
+        // Remaining segments (TYPE/RATE/…) describe the currently-active
+        // CAT input. Attach them to whichever column has a non-NONE CAT
+        // entry — that's the input the radio is actually on.
+        let tail = Array(segments.dropFirst(pairCount * 2))
+        if !tail.isEmpty {
+            let leftHasCat = leftLines.count > 1
+                && !leftLines[1].uppercased().contains("NONE")
+            if leftHasCat {
+                leftLines.append(contentsOf: tail)
+            } else {
+                rightLines.append(contentsOf: tail)
+            }
+        }
+        return (leftLines, rightLines)
+    }
+
+    @ViewBuilder
+    private func catReportLayout(_ segments: [String]) -> some View {
+        let cols = catReportColumns(segments)
+        HStack(alignment: .top, spacing: 0) {
+            column(cols.left)
+            Rectangle()
+                .fill(LCDStyle.dimGreen)
+                .frame(width: 1)
+                .padding(.vertical, 4)
+            column(cols.right)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func column(_ lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundStyle(LCDStyle.green)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+// MARK: - Standby Banner (replaces the power meter while amp is idle)
+//
+// When the amp is in STANDBY, the power meter always reads 0 W — the
+// panel space is more useful showing what the amp itself renders on its
+// LCD: "EXPERT 1.5K FA / SOLID STATE / FULLY AUTOMATIC / STANDBY".
+// Text is taken directly from the standby RCU frame so firmware/model
+// variants render whatever the amp shows.
+
+struct StandbyBannerView: View {
+    @Environment(AmplifierViewModel.self) private var vm
+
+    var body: some View {
+        let lines = vm.standbyBannerLines
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: 6) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
+                    let isLast = idx == lines.count - 1
+                    Text(line)
+                        .font(.system(
+                            size: isLast ? 16 : 14,
+                            weight: .semibold,
+                            design: .monospaced))
+                        .foregroundStyle(isLast ? .white : LCDStyle.green)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 18)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(LCDStyle.background)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(LCDStyle.dimGreen.opacity(0.5), lineWidth: 1)
+        )
+    }
+}

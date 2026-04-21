@@ -47,13 +47,29 @@ struct ContentView: View {
                         // have arrived.
                         RCUDebugView()
 
-                        // Swap between normal display, setup menu, and sub-menus
-                        if let subMenu = vm.activeSubMenu {
+                        // Swap between normal display, setup menu, sub-menus,
+                        // and CAT/DISP info overlay.
+                        if vm.isShowingInfoScreen {
+                            InfoScreenView()
+                                .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
+                                .transition(.opacity)
+                        } else if let subMenu = vm.activeSubMenu {
                             subMenuView(for: subMenu)
                                 .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
                                 .transition(.opacity)
                         } else if vm.isInSetupMode {
                             SetupMenuView()
+                                .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
+                                .transition(.opacity)
+                        } else if vm.state.opStatus == "Stby"
+                                  && !vm.standbyBannerLines.isEmpty {
+                            // In STANDBY mirror the amp's LCD as a banner
+                            // sized to the menu display height — same
+                            // footprint as a SETUP sub-menu so toggling
+                            // between STANDBY / SETUP / OPERATE doesn't
+                            // shift anything below. Gauges hide here
+                            // (they're all zero when idle anyway).
+                            StandbyBannerView()
                                 .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
                                 .transition(.opacity)
                         } else {

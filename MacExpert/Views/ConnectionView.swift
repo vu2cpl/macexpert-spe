@@ -96,7 +96,7 @@ struct ConnectionView: View {
             Text("Host").font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 40, alignment: .leading)
             TextField("IP or hostname", text: Bindable(vm).wsHost).textFieldStyle(.roundedBorder).disabled(vm.isConnected)
             Text(":").foregroundStyle(.secondary)
-            TextField("Port", value: Bindable(vm).wsPort, format: .number).textFieldStyle(.roundedBorder).frame(width: 65).disabled(vm.isConnected)
+            TextField("Port", value: Bindable(vm).wsPort, format: .number.grouping(.never)).textFieldStyle(.roundedBorder).frame(width: 65).disabled(vm.isConnected)
         }
     }
 }

@@ -45,6 +45,37 @@ final class AmplifierViewModel {
         "FLEX", "ELECRAFT", "BAND DATA", "EXIT",
     ]
 
+    /// True while the amp is showing a CAT / DISP info screen (brought up
+    /// by repeated CAT / DISP presses). Those screens have no cursor and
+    /// no editable fields — we just show the amp's LCD contents verbatim.
+    /// Cleared automatically when the next non-info frame arrives.
+    var isShowingInfoScreen: Bool = false
+
+    /// Decoded body segments from the most recent info-screen frame.
+    /// Each segment is a clean word-group (e.g. "INPUT 1", "CAT : FLEX
+    /// RADIO"). Populated by the info-screen handler in `handleRCUFrame`.
+    var infoScreenLines: [String] = []
+
+    /// Title extracted from the info-screen frame's header row. The amp's
+    /// header can run up to 48 chars (e.g. "CAT SETTING REPORT INPUT"),
+    /// so we surface it separately rather than guessing from body text.
+    var infoScreenTitle: String = ""
+
+    /// Banner lines derived from the amp's own LCD body when it's sitting
+    /// in STANDBY. The amp renders "EXPERT 1.5K FA / SOLID STATE / FULLY
+    /// AUTOMATIC / STANDBY" as its standby panel; we mirror that as a
+    /// banner in place of the power meter for a cleaner idle look.
+    /// Empty when no standby frame has been seen yet or we're not in
+    /// standby.
+    var standbyBannerLines: [String] = []
+
+    /// Timestamp of the last info-screen frame. Used by an auto-clear
+    /// watchdog so the overlay closes when the amp transitions back to
+    /// standby/operate (which can arrive as a missed/classified-away
+    /// frame rather than a clean opStandby).
+    private var lastInfoFrameAt: Date?
+    private var infoScreenAutoClearTask: Task<Void, Never>?
+
     /// Current BEEP state — tracked locally. Amp doesn't expose this in
     /// CSV; we flip on each SET press while cursor is on BEEP. Nil until
     /// the user has toggled it at least once in this session.
@@ -273,6 +304,20 @@ final class AmplifierViewModel {
                     ws.onConnectionChange = { [weak self] connected in
                         self?.isConnected = connected
                         self?.statusMessage = connected ? "Connected (WebSocket)" : "Disconnected"
+                    }
+                    // RCU frames arrive as binary WS messages when the Pi's
+                    // spe-remote is running a build that proxies them. The
+                    // pipeline is identical to serial from here on — parse,
+                    // update view state, bump counters.
+                    ws.onRCUDisplayPacket = { [weak self] packet in
+                        guard let self else { return }
+                        self.rcuCallbackCount += 1
+                        self.rcuLastCallbackAt = Date()
+                        self.captureLogger.append(packet: [UInt8](packet))
+                        self.handleRCUFrame(packet)
+                    }
+                    ws.onRCUTick = { [weak self] in
+                        self?.rcuTicksSent += 1
                     }
                     connection = ws
                     try await ws.connect()
@@ -753,6 +798,35 @@ final class AmplifierViewModel {
                 }
                 exitSetupRCU()
             }
+            // A non-info frame closes any open info overlay.
+            if isShowingInfoScreen {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isShowingInfoScreen = false
+                    infoScreenLines = []
+                }
+            }
+            // Refresh the standby banner text from the current frame
+            // (only when we're actually in STANDBY — in OPERATE the
+            // banner hides so the live power meter takes over again).
+            if frame.screen == .opStandby {
+                let banner = Self.decodeInfoScreenLines(from: frame.raw)
+                if banner != standbyBannerLines { standbyBannerLines = banner }
+            } else if !standbyBannerLines.isEmpty {
+                standbyBannerLines = []
+            }
+
+        case .infoScreen:
+            // Read-only CAT / DISP info panel. Take the title from the
+            // frame's parsed header row; decode the body separately so
+            // we don't duplicate header text in the body segments.
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isShowingInfoScreen = true
+                infoScreenTitle = frame.header
+                infoScreenLines = Self.decodeInfoScreenLines(
+                    from: frame.raw, headerTitle: frame.header)
+            }
+            lastInfoFrameAt = Date()
+            scheduleInfoScreenAutoClear()
 
         case .yaesuModel:
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -806,6 +880,95 @@ final class AmplifierViewModel {
         case .unknown:
             break
         }
+    }
+
+    /// Decode the first ~320 bytes of an RCU frame into 40-char rows using
+    /// the LCD attribute scheme. The amp's LCD is 40 columns wide; we
+    /// show every row so we don't have to know in advance which info
+    /// screen we're looking at. Empty / whitespace-only rows are kept so
+    /// spacing in the output matches the amp's panel.
+    /// Restart the 2-second info-screen watchdog. Each info-screen frame
+    /// calls this; if no new info frame arrives within the window (i.e.
+    /// the amp transitioned back to standby/operate and we either
+    /// misclassified that frame or didn't receive it), auto-clear the
+    /// overlay so the user isn't stuck looking at a stale panel.
+    private func scheduleInfoScreenAutoClear() {
+        infoScreenAutoClearTask?.cancel()
+        infoScreenAutoClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            await MainActor.run {
+                // Only clear if no fresher frame has been recorded since
+                // this task was scheduled.
+                guard let last = self.lastInfoFrameAt,
+                      Date().timeIntervalSince(last) >= 1.9 else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    self.isShowingInfoScreen = false
+                    self.infoScreenLines = []
+                }
+            }
+        }
+    }
+
+    static func decodeInfoScreenLines(from raw: [UInt8], headerTitle: String = "") -> [String] {
+        // The amp's LCD row width differs by screen (some 40, some 32),
+        // and splitting the body at the wrong width butchers words —
+        // e.g. "AUTOMATIC" breaks into "AUTOMA" / "TIC" on separate
+        // rows. Instead of guessing the width, decode the whole body
+        // region (bytes 32-191) as one string and split on runs of 3+
+        // spaces, which the amp uses as natural field/row separators.
+        // Each resulting segment is a clean word-group; the view centres
+        // them one per line.
+        let end = min(192, raw.count)
+        guard end >= 32 else { return [] }
+        let raw = LCDText.decode(raw[32..<end])
+            .replacingOccurrences(of: ".", with: " ")
+        // Tokens from the title we should drop if they appear at the
+        // very start of the body (tail of a long header spilling past
+        // byte 31). E.g. header "CAT SETTING REPORT INP" → body starts
+        // with "UT 1" — we suppress that fragment.
+        let titleTail: Set<String> = {
+            let words = headerTitle
+                .uppercased()
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .map(String.init)
+            return Set(words.suffix(2))   // last 1-2 header words
+        }()
+        // Split on runs of 3+ spaces, trim each segment, drop empties.
+        var segments: [String] = []
+        var current = ""
+        var spaceRun = 0
+        for ch in raw {
+            if ch == " " {
+                spaceRun += 1
+                if spaceRun >= 3 && !current.isEmpty {
+                    segments.append(current.trimmingCharacters(in: .whitespaces))
+                    current = ""
+                }
+            } else {
+                if spaceRun > 0 && !current.isEmpty && spaceRun < 3 {
+                    // Keep small gaps inside a segment so "SN:0656"
+                    // style labels stay intact.
+                    current.append(" ")
+                }
+                spaceRun = 0
+                current.append(ch)
+            }
+        }
+        if !current.trimmingCharacters(in: .whitespaces).isEmpty {
+            segments.append(current.trimmingCharacters(in: .whitespaces))
+        }
+        // Drop a leading segment that's only a fragment of the header
+        // tail (e.g. "RT" from "CAT SETTING REPORT", or "UT" from
+        // "...INPUT"). Anything shorter than 3 chars AND matching a
+        // trailing word fragment of the title is noise.
+        if let first = segments.first {
+            let upper = first.uppercased()
+            if first.count <= 3 && titleTail.contains(where: { $0.hasSuffix(upper) }) {
+                segments.removeFirst()
+            }
+        }
+        return segments
     }
 
     private func handleStateUpdate(_ newState: AmplifierState) {

@@ -6,11 +6,16 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
     var isConnected: Bool = false
     var onStateUpdate: ((AmplifierState) -> Void)?
     var onConnectionChange: ((Bool) -> Void)?
-    /// Not currently emitted — RCU display packets aren't proxied through spe-remote yet.
+    /// Fired when spe-remote forwards a 0x6A RCU LCD display frame as a
+    /// binary WebSocket message. Payload matches what the serial path
+    /// delivers — bytes after the `AA AA AA 6A` sync+marker — so the same
+    /// RCUFrame parser works on both transports.
     var onRCUDisplayPacket: ((Data) -> Void)?
     /// Not currently emitted — raw byte stream isn't exposed by spe-remote.
     var onRawBytes: ((Data) -> Void)?
-    /// Not currently emitted — no RCU ticker in WebSocket mode.
+    /// Fired each time an RCU frame arrives. Lets the debug overlay count
+    /// frames even though we aren't driving the OFF→ON ticker locally (the
+    /// Pi server does that on our behalf).
     var onRCUTick: (() -> Void)?
 
     private var webSocketTask: URLSessionWebSocketTask?
@@ -139,14 +144,13 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
                 print("JSON decode note: \(error.localizedDescription)")
             }
         case .data(let data):
-            do {
-                let decoder = JSONDecoder()
-                let state = try decoder.decode(AmplifierState.self, from: data)
-                await MainActor.run {
-                    onStateUpdate?(state)
-                }
-            } catch {
-                print("Binary decode error: \(error.localizedDescription)")
+            // spe-remote sends RCU LCD frames as binary messages (the bytes
+            // after AA AA AA 6A). Anything else binary-shaped is unexpected
+            // but treat the same way — RCUFrame.parse will bail gracefully
+            // if the payload doesn't look right.
+            await MainActor.run {
+                onRCUDisplayPacket?(data)
+                onRCUTick?()
             }
         @unknown default:
             break
