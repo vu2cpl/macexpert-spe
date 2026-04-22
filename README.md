@@ -4,154 +4,172 @@ Modern macOS control application for **SPE Expert HF amplifiers** (1.3K-FA / 1.5
 
 Built with Swift and SwiftUI. Supports both **local USB serial** and **WebSocket** connections (via [spe-remote](https://github.com/vu2cpl/spe-remote)).
 
+Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band antenna matrix, CONFIG checkboxes, TEMP/FANS, RX/TUN ANT live values, ALARMS LOG, MANUAL TUNE, YAESU/TEN-TEC/BAUD RATE pickers, and TUN ANT → PORT — both transports.
+
 ## Features
 
-- **Dual connection mode** — USB serial (direct) or WebSocket (remote via spe-remote on Raspberry Pi)
-- **Full command set** — all 20 SPE commands: Operate, Tune, Antenna, Band, Power, CAT, Display, Set, L/C +/-, Backlight, arrows
-- **Live monitoring** — output power, SWR (ATU + antenna), drain current, PA temperature, supply voltage
-- **Auto-detect** amplifier model from serial status ID field (13K / 20K)
-- **Adaptive polling** — 200ms during TX, 1s when idle (serial mode; WebSocket receives server pushes)
-- **Power bar auto-scales** to L/M/H power level setting
-- **Warning and alarm display** — all SPE warning/alarm codes decoded
-- **Settings persistence** — connection preferences saved across sessions
-- **Auto-reconnect** for WebSocket drops
-- **Apple Silicon native** — arm64 binary
+### Connection
+- **Dual transport** — USB serial (direct) or WebSocket (remote via `spe-remote` on Raspberry Pi). RCU LCD frames are proxied over WebSocket so live sub-menu mirroring works on both paths.
+- **Auto-detect** model from serial status (1.3K / 1.5K / 2K).
+- **Auto-reconnect** with exponential backoff.
+
+### Live mirror (both directions, via RCU 0x6A LCD frames)
+| Screen | Mirroring |
+|---|---|
+| SETUP root | 4×3 grid cursor |
+| CAT menu | 3×3 cursor + active CAT type cache |
+| CONFIG | Cursor + all 5 checkboxes (BNK A/B, Remote ANT, SO2R, Combiner) |
+| TEMP/FANS | Cursor + live CELSIUS/FARENHEIT + NORMAL/CONTEST |
+| RX ANT | Cursor + YES/NO per antenna (ANT2/3/4) |
+| TUN ANT | Cursor + YES/NO per antenna (ANT1-4 + PORT + SAVE), lands on active ant on entry |
+| TUN ANT → PORT | Protocol / data bit / stop bit / parity display + 4×2 baud cursor |
+| ALARMS LOG | Parsed entries ("10 IN1: SWR EXCEEDING LIMITS") |
+| MANUAL TUNE | Live CAT frequency, L µH, C pF, SWR ANT, temperature |
+| DISPLAY | Local 0-16 brightness / contrast |
+| ANTENNA matrix | Per-band slot 1 + slot 2 with `b` / `t` / `r` suffixes; slot 1/2 cursor tracking; SAVE row |
+| YAESU / TEN-TEC / BAUD RATE | Model + speed pickers with accurate cursor decoding |
+| CAT / DISP info | CAT SETTING REPORT (two-column INPUT 1 / INPUT 2 split), SYSTEM INFO, SN, HW, CAL |
+| STANDBY | Full-area banner mirroring "EXPERT / SOLID STATE / FULLY AUTOMATIC / STANDBY" |
+
+### Status / meters
+- **Power display** auto-scales to the LOW / MID / HIGH setting (500 / 1000 / 1500 W on 1.5K-FA).
+- **Arc gauges** for SWR, drain current, PA temperature, supply voltage.
+- **Seven status chips** (one row): STATUS / BAND / ANT (with `b`/`t`/`r` suffix) / IN / LEVEL / MODE / CAT. Tappable ones cycle the corresponding amp setting.
+- **Alert banner** — when the amp reports a warning or alarm, a full-height banner replaces the main display (same footprint as a sub-menu, so nothing shifts).
+
+### UI niceties
+- **Fixed-height LCDContainer** — every sub-menu, standby banner, info screen, and alert banner is sized to match the power+gauges block, so the controls row below never moves as you navigate.
+- **Developer panels** — RCU Capture + RCU Parser Debug are hidden by default; toggle them on via the ladybug button in the title bar for diagnosing parser / pipeline issues.
+- **Apple Silicon + Intel** — universal binary (arm64 + x86_64) via `build-app.sh`.
+- **Persisted settings** — connection mode, host/port, dev-panels toggle all saved across launches.
 
 ## Requirements
 
-- macOS 14.0 (Sonoma) or later
-- For serial mode: USB cable to SPE Expert amplifier
-- For WebSocket mode: [spe-remote](https://github.com/vu2cpl/spe-remote) running on a network-accessible host
+- macOS 14.0 (Sonoma) or later.
+- For serial mode: USB cable to SPE Expert amplifier, and install ORSSerialPort (handled by SwiftPM).
+- For WebSocket mode: [spe-remote](https://github.com/vu2cpl/spe-remote) running on a network-accessible host — the Pi needs the RCU-proxy build (commit `919e58d` or later on the `main` branch).
 
 ## Install and Run
 
-### Option 1: Build from source
+### Build via `build-app.sh` (recommended — universal binary)
 
 ```bash
 git clone https://github.com/vu2cpl/macexpert-spe.git
 cd macexpert-spe
-swift build -c release
+./build-app.sh
+open ../MacExpert.app
 ```
 
-The binary will be at `.build/release/MacExpert`. Run it directly:
+The script builds both arm64 and x86_64 targets and fuses them with `lipo`, assembles `MacExpert.app` one level up, and copies resource bundles. Verify with:
 
 ```bash
-.build/release/MacExpert
+lipo -archs ../MacExpert.app/Contents/MacOS/MacExpert
+# x86_64 arm64
 ```
 
-### Option 2: Build as .app bundle
-
-```bash
-git clone https://github.com/vu2cpl/macexpert-spe.git
-cd macexpert-spe
-swift build -c release
-
-# Create app bundle
-mkdir -p MacExpert.app/Contents/MacOS MacExpert.app/Contents/Resources
-cp .build/release/MacExpert MacExpert.app/Contents/MacOS/
-cp MacExpert/Resources/ExpertIcon.icns MacExpert.app/Contents/Resources/
-
-cat > MacExpert.app/Contents/Info.plist << 'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key><string>MacExpert</string>
-    <key>CFBundleIconFile</key><string>ExpertIcon</string>
-    <key>CFBundleIdentifier</key><string>com.vu2cpl.MacExpert</string>
-    <key>CFBundleName</key><string>MacExpert</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>2.0</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>NSPrincipalClass</key><string>NSApplication</string>
-    <key>NSHighResolutionCapable</key><true/>
-</dict>
-</plist>
-PLIST
-
-echo 'APPL????' > MacExpert.app/Contents/PkgInfo
-```
-
-Then double-click `MacExpert.app` or:
-
-```bash
-open MacExpert.app
-```
-
-### Option 3: Open in Xcode
+### Open in Xcode
 
 ```bash
 open Package.swift
 ```
 
-Xcode will resolve the SPM dependency (ORSSerialPort) and you can build/run from there.
+Xcode resolves the SwiftPM deps and you can build/run.
 
 ## Usage
 
 ### Serial Mode
 
-1. Connect the SPE Expert amplifier via USB
-2. Launch MacExpert
-3. Select **Serial** mode
-4. Choose the USB serial port from the dropdown
-5. Baud rate: **115200** (default)
-6. Click **Connect**
+1. Plug the SPE Expert amplifier into USB.
+2. Launch MacExpert.
+3. Pick **Serial** in the Connection dropdown.
+4. Choose the port; baud rate stays at **115200**.
+5. Click **Connect**.
 
 ### WebSocket Mode
 
-1. Ensure [spe-remote](https://github.com/vu2cpl/spe-remote) is running on your Raspberry Pi or server
-2. Launch MacExpert
-3. Select **WebSocket** mode
-4. Enter the host IP and port (default: 8888)
-5. Click **Connect**
+1. Make sure `spe-remote` is running on the Pi and reachable.
+2. Launch MacExpert, pick **WebSocket**.
+3. Enter the Pi's IP and port (default `8888` — no comma).
+4. Click **Connect**. Status chips start updating within a second; RCU-driven sub-menus populate when you enter SETUP.
+
+### SETUP navigation
+
+- Click **SET** on the panel to enter SETUP (only allowed in STANDBY per amp firmware).
+- ◀ / ▶ navigate the cursor; SET confirms; SET on EXIT leaves the sub-menu.
+- Tap the tappable status chips (BAND / ANT / IN / LEVEL / MODE) to cycle those settings directly without going through SETUP.
 
 ## SPE Protocol
 
 Based on the **SPE Application Programmer's Guide Rev 1.1** (15.10.2015).
 
-- Serial: 115200 baud, 8N1, no parity
-- Packet format: `0x55 0x55 0x55 [CNT] [DATA] [CHK]` (host to amp)
-- Status response: 67-char ASCII CSV with 19 fields
-- 20 commands (0x01-0x11, 0x82, 0x83, 0x90)
+- Serial: 115200 baud, 8N1, no parity.
+- Host-to-amp packet: `0x55 0x55 0x55 [CNT] [DATA] [CHK]`.
+- Amp-to-host packet: `0xAA 0xAA 0xAA [CNT / type] [DATA] [CHK CRLF]` (CSV) or `0xAA 0xAA 0xAA 0x6A [variable payload]` (RCU LCD frame, sync-to-sync delimited).
+- **CSV status** (type `0x43`): 67-byte ASCII with 19 fields, polled at 0.2 s (TX) / 1 s (idle).
+- **RCU LCD frame** (type `0x6A`): ~371-byte binary payload with attribute-encoded LCD text (XOR `0x20` for bytes `0x10-0x3F`). Streamed while RCU is enabled.
+- 22 commands covered: `0x01-0x11` (function keys), `0x80 / 0x81` (RCU on/off), `0x82 / 0x83` (backlight), `0x90` (status request).
 
 ## Dependencies
 
-- [ORSSerialPort](https://github.com/armadsen/ORSSerialPort) — macOS serial port library (via SPM)
+- [ORSSerialPort](https://github.com/armadsen/ORSSerialPort) — macOS serial port library (via SPM).
 
 ## Project Structure
 
 ```
 MacExpert/
-├── MacExpertApp.swift           # App entry point
+├── MacExpertApp.swift              # App entry point
+├── build-app.sh                    # Universal-binary build + .app assembly
 ├── Models/
-│   ├── AmplifierState.swift     # State model (Codable, serial + WebSocket)
-│   ├── AmplifierModel.swift     # Amp model enum with power limits
-│   └── SPEProtocol.swift        # Commands, packet builder, status parser
+│   ├── AmplifierState.swift        # CSV-derived state (Codable; JSON over WS)
+│   ├── AmplifierModel.swift        # Model enum + LOW/MID/HIGH power limits
+│   ├── AntennaMap.swift            # Persisted per-band antenna cache (CSV-learned)
+│   ├── SPEProtocol.swift           # Commands, packet builder, CSV parser
+│   ├── RCUDisplayPacket.swift      # 0x6A frame locator (sync-to-sync)
+│   ├── RCUFrame.swift              # Full parser — screen detection, cursor,
+│   │                               # sub-menu fields, antenna matrix, info
+│   │                               # screens, config checkboxes, etc.
+│   ├── LCDText.swift               # Attribute-aware LCD text decoder
+│   └── GridCursorDecoder.swift     # Per-menu cursor decoders
 ├── Connection/
-│   ├── ConnectionProvider.swift # Connection protocol
-│   ├── SerialConnection.swift   # USB serial via ORSSerialPort
-│   └── WebSocketConnection.swift# WebSocket client
+│   ├── ConnectionProvider.swift    # Transport-agnostic protocol
+│   ├── SerialConnection.swift      # USB serial + RCU OFF/ON ticker
+│   └── WebSocketConnection.swift   # WS client; binary frames → RCU
 ├── ViewModels/
-│   └── AmplifierViewModel.swift # Observable state management
+│   └── AmplifierViewModel.swift    # Observable state, frame handling,
+│                                   # sub-menu routing, info-screen watchdog
 ├── Views/
-│   ├── ContentView.swift        # Main layout
-│   ├── ConnectionView.swift     # Connection settings
-│   ├── PowerDisplayView.swift   # Power bar + readout
-│   ├── GaugeView.swift          # Arc gauges (SWR, drain, temp, voltage)
-│   ├── StatusChipsView.swift    # Status indicators
-│   ├── ControlsView.swift       # Control button grid
-│   └── AlertBarView.swift       # Warning/alarm banner
+│   ├── ContentView.swift           # Root layout + view routing
+│   ├── ConnectionView.swift        # Serial/WS connection settings
+│   ├── CaptureView.swift           # Dev-panel: RCU frame capture
+│   ├── RCUDebugView.swift          # Dev-panel: parser state + frame fields
+│   ├── PowerDisplayView.swift      # Power bar + readout + auto-scale ticks
+│   ├── GaugeView.swift             # Arc gauges
+│   ├── StatusChipsView.swift       # 7-chip row (STATUS/BAND/ANT/IN/LEVEL/MODE/CAT)
+│   ├── ControlsView.swift          # TUNE / DISP / CAT / SET + L± / C± / ◀▶
+│   ├── LEDStatusView.swift         # SERIAL / POWER / OPER / TUNE / TX / ALARM / SET
+│   ├── SetupMenuView.swift         # SETUP 4×3 grid (root)
+│   └── SetupSubMenuViews.swift     # All sub-menu views + LCDContainer +
+│                                   # InfoScreenView + StandbyBannerView +
+│                                   # AlertBannerView + shared LCD styling
+├── Capture/
+│   └── CaptureLogger.swift         # Reverse-engineering capture pipeline
 └── Resources/
-    └── ExpertIcon.icns          # App icon
+    └── ExpertIcon.icns             # App icon
 ```
+
+## Known limitations / TODO
+
+- **Physical TUNE-button detection** — the SPE CSV protocol has no "tune in progress" bit. Warning `"W"` (TUNING WITH NO POWER) only fires on failed tunes, so it isn't a reliable signal. Currently the TUNE LED lights for 5 s on app-initiated tunes only.
+- **CAT / DISP info screen structured parsing** — basic raw-text mirroring works; could extract structured fields per screen for richer UI.
+
+## Credits
+
+- Original MacExpert by Georg Isenbuerger DJ6GI/NZ1C.
+- SPE protocol reference by SPE s.r.l.
+- RCU proprietary-protocol reverse engineering & sub-menu decoding: **VU2CPL** (2026-04, from scratch on a 1.5K-FA) — see the in-repo capture pipeline and `tools/analyze_captures.py`.
+- [spe-remote](https://github.com/vu2cpl/spe-remote) by VU2CPL.
+- [ORSSerialPort](https://github.com/armadsen/ORSSerialPort) by Andrew Madsen AC7CF.
 
 ## License
 
 MIT
-
-## Credits
-
-- Original MacExpert by Georg Isenbuerger DJ6GI/NZ1C
-- SPE protocol reference by SPE s.r.l.
-- [spe-remote](https://github.com/vu2cpl/spe-remote) by VU2CPL
-- [ORSSerialPort](https://github.com/armadsen/ORSSerialPort) by Andrew Madsen AC7CF
