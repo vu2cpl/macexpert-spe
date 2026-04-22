@@ -1050,7 +1050,14 @@ struct StandbyBannerView: View {
     @Environment(AmplifierViewModel.self) private var vm
 
     var body: some View {
-        let lines = vm.standbyBannerLines
+        // Fall back to a static banner if we don't have a parsed LCD
+        // mirror yet — happens right after reconnect or before the first
+        // RCU standby frame arrives. Prevents the view above from
+        // flipping to the power meter while the pipeline catches up.
+        let lines: [String] = vm.standbyBannerLines.isEmpty
+            ? ["EXPERT", "SOLID STATE", "FULLY AUTOMATIC", "STANDBY"]
+            : vm.standbyBannerLines
+
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             VStack(spacing: 6) {
@@ -1079,6 +1086,56 @@ struct StandbyBannerView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(LCDStyle.dimGreen.opacity(0.5), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Alert Banner (replaces main display area during alarms/warnings)
+//
+// When the amp reports an alarm (field 19 in CSV) or warning (field 18),
+// we commandeer the main display slot with a high-contrast banner so
+// the user can't miss it. Same height as StandbyBannerView / sub-menu
+// LCDContainer, so nothing below shifts when the banner appears.
+
+struct AlertBannerView: View {
+    @Environment(AmplifierViewModel.self) private var vm
+
+    var body: some View {
+        let isError = !vm.state.error.isEmpty
+        let message = isError ? vm.state.error : vm.state.warnings
+        let accent: Color = isError ? .red : .orange
+
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
+                Image(systemName: isError ? "exclamationmark.triangle.fill"
+                                          : "exclamationmark.circle.fill")
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundStyle(accent)
+                Text(isError ? "ALARM" : "WARNING")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(accent.opacity(0.8))
+                    .tracking(2)
+                Text(message)
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding(.horizontal, 18)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(accent.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(accent.opacity(0.45), lineWidth: 1)
         )
     }
 }

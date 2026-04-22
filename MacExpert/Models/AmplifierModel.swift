@@ -55,7 +55,7 @@ enum AmplifierModel: String, CaseIterable {
         case .expert1_5K:
             switch level {
             case "L": return 500
-            case "M": return 800
+            case "M": return 1000
             default:  return 1500
             }
         case .expert2K:
@@ -67,7 +67,7 @@ enum AmplifierModel: String, CaseIterable {
         case .unknown:
             switch level {
             case "L": return 500
-            case "M": return 800
+            case "M": return 1000
             default:  return 1500
             }
         }

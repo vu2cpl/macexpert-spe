@@ -18,6 +18,11 @@ struct ContentView: View {
     /// time the normal view is rendered; stays set afterwards so
     /// sub-menus can match it.
     @State private var normalBlockHeight: CGFloat = 0
+    /// Dev panels (RCU Capture + RCU Parser Debug) are hidden by default;
+    /// the user can toggle them on via the ladybug button in the title
+    /// bar when they need to diagnose parser / pipeline issues. Setting
+    /// is persisted across launches.
+    @AppStorage("showDevPanels") private var showDevPanels: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,6 +32,17 @@ struct ContentView: View {
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                 Spacer()
+                // Developer-panels toggle. Compact ladybug glyph so it
+                // doesn't crowd the title bar; yellow when active.
+                Button {
+                    showDevPanels.toggle()
+                } label: {
+                    Image(systemName: "ladybug")
+                        .font(.system(size: 12))
+                        .foregroundStyle(showDevPanels ? .yellow : Color(white: 0.4))
+                }
+                .buttonStyle(.plain)
+                .help(showDevPanels ? "Hide developer panels" : "Show developer panels (RCU capture + parser debug)")
                 ConnectionIndicator(isConnected: vm.isConnected, status: vm.statusMessage)
             }
             .padding(.horizontal, 12)
@@ -36,20 +52,27 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 6) {
                     ConnectionView()
-                    CaptureView()
+                    if showDevPanels {
+                        CaptureView()
+                    }
 
                     if vm.isConnected {
-                        AlertBarView()
-
-                        // RCU parser debug overlay — always visible when
-                        // connected so we can see pipeline state (connection
-                        // type, callback count, rcuOwner) even if no frames
-                        // have arrived.
-                        RCUDebugView()
+                        // RCU parser debug overlay — only visible when the
+                        // developer-panels toggle is on.
+                        if showDevPanels {
+                            RCUDebugView()
+                        }
 
                         // Swap between normal display, setup menu, sub-menus,
-                        // and CAT/DISP info overlay.
-                        if vm.isShowingInfoScreen {
+                        // and CAT/DISP info overlay. An active alarm /
+                        // warning takes over the whole main area as a big
+                        // banner — same footprint as a sub-menu so the
+                        // rest of the UI doesn't shift.
+                        if !vm.state.error.isEmpty || !vm.state.warnings.isEmpty {
+                            AlertBannerView()
+                                .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
+                                .transition(.opacity)
+                        } else if vm.isShowingInfoScreen {
                             InfoScreenView()
                                 .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
                                 .transition(.opacity)
@@ -61,14 +84,17 @@ struct ContentView: View {
                             SetupMenuView()
                                 .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
                                 .transition(.opacity)
-                        } else if vm.state.opStatus == "Stby"
-                                  && !vm.standbyBannerLines.isEmpty {
+                        } else if vm.state.opStatus == "Stby" {
                             // In STANDBY mirror the amp's LCD as a banner
                             // sized to the menu display height — same
                             // footprint as a SETUP sub-menu so toggling
                             // between STANDBY / SETUP / OPERATE doesn't
                             // shift anything below. Gauges hide here
-                            // (they're all zero when idle anyway).
+                            // (they're all zero when idle anyway). The
+                            // banner relies on state.opStatus alone so a
+                            // transient "banner lines empty" (e.g. right
+                            // after reconnect) doesn't flip the view back
+                            // to the power meter and then back again.
                             StandbyBannerView()
                                 .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
                                 .transition(.opacity)
