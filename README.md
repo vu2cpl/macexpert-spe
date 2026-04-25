@@ -100,7 +100,7 @@ Xcode resolves the SwiftPM deps and you can build/run.
 
 ## SPE Protocol
 
-Based on the **SPE Application Programmer's Guide Rev 1.1** (15.10.2015).
+Based on the **SPE Application Programmer's Guide Rev 1.1** (15.10.2015) for the documented CSV channel, plus **reverse-engineered RCU LCD protocol** for live menu mirroring — see [`docs/REVERSE_ENGINEERING.md`](docs/REVERSE_ENGINEERING.md) for the full write-up of how the 0x6A frame format, attribute encoding, per-menu cursor schemes, and tick strategy were figured out.
 
 - Serial: 115200 baud, 8N1, no parity.
 - Host-to-amp packet: `0x55 0x55 0x55 [CNT] [DATA] [CHK]`.
