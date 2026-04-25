@@ -18,6 +18,12 @@ moving target — fixtures pin it down.
 | File | Captured | What the amp was showing |
 |---|---|---|
 | `op_idle.bin` | 2026-04-16 | Operate mode, idle (power-meter scale 0/125/250/375/500) |
+| `standby_idle.bin` | 2026-04-26 | STANDBY logo (EXPERT 1.5K FA / SOLID STATE / FULLY AUTOMATIC / STANDBY) |
+| `setup_root.bin` | 2026-04-26 | SETUP OPTIONS 4×3 grid |
+| `antenna_matrix.bin` | 2026-04-26 | SET ANTENNA ON BANK A — per-band slot table |
+| `cat_settings.bin` | 2026-04-26 | CAT SETTING REPORT info screen (1st CAT press) |
+| `system_info.bin` | 2026-04-26 | SYSTEM INFO info screen (2nd CAT press; firmware/serial) |
+| `tun_ant_port.bin` | 2026-04-26 | TUN ANT → PORT (protocol/data bit/stop bit/parity + baud grid) |
 
 ## Adding a new fixture
 

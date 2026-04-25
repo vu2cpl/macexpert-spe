@@ -79,6 +79,137 @@ final class RCUFrameTests: XCTestCase {
         XCTAssertNotEqual(frame.screen, .infoScreen,
                           "Operate idle frame must not classify as .infoScreen")
     }
+
+    // MARK: - standby_idle.bin (STANDBY logo screen)
+
+    func test_standbyIdle_classifiesAsStandby() {
+        let data = loadFixture("standby_idle")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertEqual(frame.screen, .opStandby)
+    }
+
+    func test_standbyIdle_bodyHasExpectedLogoText() {
+        let data = loadFixture("standby_idle")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        let body = LCDText.decodeTrimmed(frame.raw[0..<min(192, frame.raw.count)])
+            .uppercased()
+        XCTAssertTrue(body.contains("EXPERT"))
+        XCTAssertTrue(body.contains("SOLID STATE"))
+        XCTAssertTrue(body.contains("STANDBY"))
+    }
+
+    // MARK: - setup_root.bin (SETUP OPTIONS 4×3 grid)
+
+    func test_setupRoot_classifiesAsSetupRoot() {
+        let data = loadFixture("setup_root")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertEqual(frame.screen, .setupRoot)
+    }
+
+    func test_setupRoot_cursorDecodesToValidIndex() {
+        // The amp always has a cursor on SETUP root. Decoder must return
+        // a value in 0..<12 (12 grid cells).
+        let data = loadFixture("setup_root")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        guard let idx = frame.gridCursorNavIndex else {
+            XCTFail("SETUP root frame should have a decoded cursor")
+            return
+        }
+        XCTAssertTrue((0..<12).contains(idx),
+                      "SETUP cursor index out of range: \(idx)")
+    }
+
+    // MARK: - antenna_matrix.bin (SET ANTENNA ON BANK A)
+
+    func test_antennaMatrix_classifiesCorrectly() {
+        let data = loadFixture("antenna_matrix")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertEqual(frame.screen, .antennaMatrix)
+    }
+
+    func test_antennaMatrix_parsesAtLeastSomeBands() {
+        // The matrix-row regex should pick up multiple bands from a real
+        // capture. Exact bands depend on the configuration but we should
+        // see at least a couple.
+        let data = loadFixture("antenna_matrix")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        guard let matrix = frame.antennaMatrixValues else {
+            XCTFail("antennaMatrixValues should be non-nil on antenna matrix screen")
+            return
+        }
+        XCTAssertGreaterThanOrEqual(matrix.count, 3,
+            "Expected at least 3 parsed bands, got \(matrix.count): \(matrix.keys.sorted())")
+    }
+
+    func test_antennaMatrix_bankLetterParsedAsA() {
+        let data = loadFixture("antenna_matrix")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertEqual(frame.bankLetter, "A",
+                       "Bank letter should be 'A' (got \(String(describing: frame.bankLetter)))")
+    }
+
+    // MARK: - cat_settings.bin (CAT SETTING REPORT info screen)
+
+    func test_catSettings_classifiesAsInfoScreen() {
+        let data = loadFixture("cat_settings")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertEqual(frame.screen, .infoScreen,
+                       "CAT SETTING REPORT must classify as .infoScreen")
+    }
+
+    func test_catSettings_headerContainsCatSetting() {
+        let data = loadFixture("cat_settings")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertTrue(frame.header.uppercased().contains("CAT SETTING"),
+                      "Header should contain 'CAT SETTING', got: \(frame.header)")
+    }
+
+    // MARK: - system_info.bin (SYSTEM INFO via second CAT press)
+
+    func test_systemInfo_classifiesAsInfoScreen() {
+        let data = loadFixture("system_info")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertEqual(frame.screen, .infoScreen)
+    }
+
+    func test_systemInfo_bodyContainsFirmwareRelease() {
+        let data = loadFixture("system_info")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        let body = LCDText.decodeTrimmed(frame.raw[32..<min(192, frame.raw.count)])
+            .uppercased()
+        XCTAssertTrue(body.contains("REL "),
+                      "SYSTEM INFO body should contain firmware 'REL ' marker, got: \(body)")
+    }
+
+    // MARK: - tun_ant_port.bin (TUNEABLE ANTENNAS PORT — protocol/baud)
+
+    func test_tunAntPort_classifiesAsTunAntPort() {
+        let data = loadFixture("tun_ant_port")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertEqual(frame.screen, .tunAntPort)
+    }
+
+    func test_tunAntPort_extractsProtocolField() {
+        let data = loadFixture("tun_ant_port")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        // Whatever protocol the user has configured, it must be a
+        // non-empty word — not nil and not the literal "—".
+        guard let proto = frame.tunAntPortProtocol else {
+            XCTFail("tunAntPortProtocol should be parsed from real frame")
+            return
+        }
+        XCTAssertFalse(proto.isEmpty)
+        XCTAssertTrue(proto.allSatisfy { $0.isLetter || $0.isNumber || $0 == " " },
+                      "Protocol value looks garbled: \(proto)")
+    }
+
+    func test_tunAntPort_dataAndStopBitArePresent() {
+        let data = loadFixture("tun_ant_port")
+        guard let frame = RCUFrame.parse(data) else { XCTFail(); return }
+        XCTAssertNotNil(frame.tunAntPortDataBit, "DATA BIT field missing")
+        XCTAssertNotNil(frame.tunAntPortStopBit, "STOP BIT field missing")
+        XCTAssertNotNil(frame.tunAntPortParity,  "PARITY field missing")
+    }
 }
 
 // MARK: - LCDText regression tests
