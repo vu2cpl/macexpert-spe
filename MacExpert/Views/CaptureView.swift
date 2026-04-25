@@ -111,15 +111,12 @@ struct CaptureView: View {
     }
 
     private var canCapture: Bool {
-        vm.isConnected && vm.connectionMode == .serial
+        vm.isConnected
     }
 
     private var helpText: String {
         if !vm.isConnected {
             return "Connect to the amp first."
-        }
-        if vm.connectionMode != .serial {
-            return "Capture is serial-only — RCU packets aren't proxied through spe-remote."
         }
         if vm.captureLogger.isRunning {
             return "Set the amp to a screen, edit the label, then click Grab Frame (or press Space). Repeat for each screen you want captured."
