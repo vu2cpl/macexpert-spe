@@ -22,5 +22,13 @@ let package = Package(
                 .copy("Resources/ExpertIcon.icns"),
             ]
         ),
+        .testTarget(
+            name: "MacExpertTests",
+            dependencies: ["MacExpert"],
+            path: "Tests/MacExpertTests",
+            resources: [
+                .copy("Fixtures"),
+            ]
+        ),
     ]
 )

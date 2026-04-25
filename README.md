@@ -75,6 +75,17 @@ open Package.swift
 
 Xcode resolves the SwiftPM deps and you can build/run.
 
+### Tests
+
+```bash
+swift test
+```
+
+Runs the regression suite against real captured RCU frames stored as
+binary fixtures in `Tests/MacExpertTests/Fixtures/`. See that
+directory's [README](Tests/MacExpertTests/Fixtures/README.md) for the
+procedure to add new fixtures from a fresh capture.
+
 ## Usage
 
 ### Serial Mode
