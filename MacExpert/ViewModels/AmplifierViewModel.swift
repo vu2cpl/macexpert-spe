@@ -61,6 +61,24 @@ final class AmplifierViewModel {
     /// so we surface it separately rather than guessing from body text.
     var infoScreenTitle: String = ""
 
+    /// Timestamp of the most recent CSV state update from the amp.
+    var lastStateUpdateAt: Date?
+
+    /// Timestamp of the LAST piece of traffic we received from the amp
+    /// — either a CSV state update OR an RCU display frame. RCU frames
+    /// tick at ~1.5 s on a static screen, so this is a much tighter
+    /// liveness signal than CSV alone (the Pi suppresses identical CSV
+    /// JSON for up to 15 s as a bandwidth optimisation).
+    private var lastTrafficAt: Date?
+
+    /// True when ANY traffic from the amp has arrived recently. Goes
+    /// false when the connection is up but the amp itself is silent —
+    /// usually because the amp is powered off (the FTDI stays
+    /// USB-connected so the WS stays up; only the amp's serial output
+    /// stops).
+    var isAmpResponding: Bool = false
+    private var ampWatchdogTask: Task<Void, Never>?
+
     /// Banner lines derived from the amp's own LCD body when it's sitting
     /// in STANDBY. The amp renders "EXPERT 1.5K FA / SOLID STATE / FULLY
     /// AUTOMATIC / STANDBY" as its standby panel; we mirror that as a
@@ -280,6 +298,7 @@ final class AmplifierViewModel {
                         guard let self else { return }
                         self.rcuCallbackCount += 1
                         self.rcuLastCallbackAt = Date()
+                        self.markAmpTraffic()
                         self.captureLogger.append(packet: [UInt8](packet))
                         self.handleRCUFrame(packet)
                     }
@@ -313,6 +332,7 @@ final class AmplifierViewModel {
                         guard let self else { return }
                         self.rcuCallbackCount += 1
                         self.rcuLastCallbackAt = Date()
+                        self.markAmpTraffic()
                         self.captureLogger.append(packet: [UInt8](packet))
                         self.handleRCUFrame(packet)
                     }
@@ -910,6 +930,40 @@ final class AmplifierViewModel {
         }
     }
 
+    /// Mark traffic as just received from the amp. Called by both
+    /// handleStateUpdate (CSV) and the RCU display-packet handler so
+    /// the watchdog stays accurate even when the Pi suppresses
+    /// identical CSV JSON.
+    func markAmpTraffic() {
+        lastTrafficAt = Date()
+        if !isAmpResponding {
+            isAmpResponding = true
+        }
+        startAmpWatchdogIfNeeded()
+    }
+
+    /// Start a 1 Hz watchdog that flips `isAmpResponding` to false when
+    /// no traffic has arrived for more than 4 seconds. Triggers a
+    /// SwiftUI re-render so the main view can show "POWERED OFF"
+    /// instead of a stale STANDBY banner.
+    private func startAmpWatchdogIfNeeded() {
+        guard ampWatchdogTask == nil else { return }
+        ampWatchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                await MainActor.run {
+                    let stale = self.lastTrafficAt
+                        .map { Date().timeIntervalSince($0) >= 4.0 } ?? true
+                    let nowResponding = !stale
+                    if self.isAmpResponding != nowResponding {
+                        self.isAmpResponding = nowResponding
+                    }
+                }
+            }
+        }
+    }
+
     static func decodeInfoScreenLines(from raw: [UInt8], headerTitle: String = "") -> [String] {
         // The amp's LCD row width differs by screen (some 40, some 32),
         // and splitting the body at the wrong width butchers words —
@@ -973,6 +1027,8 @@ final class AmplifierViewModel {
 
     private func handleStateUpdate(_ newState: AmplifierState) {
         state = newState
+        lastStateUpdateAt = Date()
+        markAmpTraffic()
 
         // Auto-detect model from ID field (serial mode)
         if !newState.modelId.isEmpty {

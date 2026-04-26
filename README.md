@@ -36,6 +36,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 - **Arc gauges** for SWR, drain current, PA temperature, supply voltage.
 - **Seven status chips** (one row): STATUS / BAND / ANT (with `b`/`t`/`r` suffix) / IN / LEVEL / MODE / CAT. Tappable ones cycle the corresponding amp setting.
 - **Alert banner** — when the amp reports a warning or alarm, a full-height banner replaces the main display (same footprint as a sub-menu, so nothing shifts).
+- **Amp-powered-off banner** — when the WS connection stays up but the amp goes silent for >4 s (FTDI still connected, but amp itself off), the main area shows a dim "POWERED OFF" panel. Watchdog drives off any received traffic (CSV state OR RCU frames) so it never spuriously trips while the amp is on.
 
 ### UI niceties
 - **Fixed-height LCDContainer** — every sub-menu, standby banner, info screen, and alert banner is sized to match the power+gauges block, so the controls row below never moves as you navigate.

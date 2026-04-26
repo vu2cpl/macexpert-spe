@@ -1139,3 +1139,49 @@ struct AlertBannerView: View {
         )
     }
 }
+
+// MARK: - Amp-Powered-Off Banner
+//
+// Replaces the main display area when CSV updates have stalled for
+// more than ~4 seconds while the WebSocket connection is still up.
+// Indicates the amp is powered off (FTDI USB stays connected, only
+// the amp's serial output stops). Same footprint as other banners.
+
+struct AmpOffBannerView: View {
+    @Environment(AmplifierViewModel.self) private var vm
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: 8) {
+                Image(systemName: "powersleep")
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundStyle(Color(white: 0.45))
+                Text("AMP")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.55))
+                    .tracking(2)
+                Text("POWERED OFF")
+                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white)
+                Text(vm.isConnected
+                     ? "Press POWER ON to wake the amplifier"
+                     : "Connection lost")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.5))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 18)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(white: 0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(white: 0.25), lineWidth: 1)
+        )
+    }
+}

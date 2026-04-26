@@ -17,7 +17,11 @@ struct ContentView: View {
     /// Measured height of PowerDisplay + Gauges. Populated the first
     /// time the normal view is rendered; stays set afterwards so
     /// sub-menus can match it.
-    @State private var normalBlockHeight: CGFloat = 0
+    /// Pre-seeded with a reasonable default so banners (powered-off,
+    /// alerts, sub-menus) get the right size on the very first render
+    /// — before the normal Power+Gauges block has ever rendered to
+    /// measure itself. Replaced as soon as that measurement arrives.
+    @State private var normalBlockHeight: CGFloat = 230
     /// Dev panels (RCU Capture + RCU Parser Debug) are hidden by default;
     /// the user can toggle them on via the ladybug button in the title
     /// bar when they need to diagnose parser / pipeline issues. Setting
@@ -64,11 +68,12 @@ struct ContentView: View {
                         }
 
                         // Swap between normal display, setup menu, sub-menus,
-                        // and CAT/DISP info overlay. An active alarm /
-                        // warning takes over the whole main area as a big
-                        // banner — same footprint as a sub-menu so the
-                        // rest of the UI doesn't shift.
-                        if !vm.state.error.isEmpty || !vm.state.warnings.isEmpty {
+                        // CAT/DISP info overlay, and amp-powered-off banner.
+                        if !vm.isAmpResponding {
+                            AmpOffBannerView()
+                                .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
+                                .transition(.opacity)
+                        } else if !vm.state.error.isEmpty || !vm.state.warnings.isEmpty {
                             AlertBannerView()
                                 .frame(height: normalBlockHeight > 0 ? normalBlockHeight : nil)
                                 .transition(.opacity)
