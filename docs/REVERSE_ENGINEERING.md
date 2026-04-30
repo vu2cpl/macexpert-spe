@@ -77,6 +77,14 @@ The original `spe-remote` Pi server only forwarded CSV state as JSON. We rewrote
 
 On the MacExpert side, `WebSocketConnection` routes binary frames straight into `onRCUDisplayPacket` — the same callback the serial path uses. Above that level, the entire RCU pipeline (parser, view model, sub-menu views) doesn't know or care which transport it's on.
 
+## Threading Model (don't break this)
+
+`SerialConnection` is `@MainActor` for its public API but **never** runs an actual `port.send()`, `port.dtr =`, `port.rts =`, `port.open()`, or `port.close()` on the main thread. All of those are dispatched onto a private `ioQueue` (a serial DispatchQueue). Reason: ORSSerialPort's `send()` calls POSIX `write()` synchronously; if the FTDI's TX buffer is full or the device is unresponsive, the kernel mutex sleeps until the buffer drains — potentially seconds, or forever if the device hangs. A spindump from a real-world hang showed the main thread wedged for ~6 minutes inside `iosswrite → lck_mtx_sleep` because the cable had been unplugged mid-write.
+
+Timer-driven writes (CSV poll + RCU OFF/ON ticker + quiet-period flush) use `DispatchSourceTimer` running directly on `ioQueue`, so neither the timer firing nor the resulting write touches the main thread. UI-affecting state and callbacks bridge back to `@MainActor` via explicit `Task { @MainActor in … }` hops.
+
+If you ever add a new public method that touches the port, follow the same pattern: take a captured reference to `port`, dispatch the work onto `ioQueue`, return immediately. The main thread must never block on serial I/O.
+
 ## Two-Way Mirroring
 
 Commands flow back through the same path: ◀/▶/SET on MacExpert sends the corresponding 6-byte command packet to the amp (or Pi-server-relayed command), which moves the cursor / commits the action. The next RCU tick reflects the change visually, closing the loop. The 600 ms cursor-update suppression ensures the user's intent isn't overwritten by a frame that hasn't seen the command yet.
