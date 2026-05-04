@@ -52,7 +52,15 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 
 ## Install and Run
 
-### Build via `build-app.sh` (recommended — universal binary)
+### Download a pre-built signed release
+
+Universal (arm64 + x86_64), Developer ID Application signed:
+
+[**Latest release →**](https://github.com/vu2cpl/macexpert-spe/releases/latest)
+
+Download `MacExpert-vX.Y.Z-universal.zip`, unzip, drag `MacExpert.app` to `/Applications`. On first launch macOS may show "unidentified developer" (the build is signed but not Apple-notarized) — right-click the app, choose **Open**, confirm.
+
+### Build via `build-app.sh` (universal binary, signed if you have the cert)
 
 ```bash
 git clone https://github.com/vu2cpl/macexpert-spe.git
@@ -61,12 +69,22 @@ cd macexpert-spe
 open ../MacExpert.app
 ```
 
-The script builds both arm64 and x86_64 targets and fuses them with `lipo`, assembles `MacExpert.app` one level up, and copies resource bundles. Verify with:
+The script builds both arm64 and x86_64 targets and fuses them with `lipo`, assembles `MacExpert.app` one level up, copies resource bundles, and codesigns with the first available `Developer ID Application` identity in your keychain. If none is present it falls back to ad-hoc signing (works locally only). Verify with:
 
 ```bash
 lipo -archs ../MacExpert.app/Contents/MacOS/MacExpert
 # x86_64 arm64
 ```
+
+### Cut a release (`release.sh`)
+
+```bash
+./release.sh                       # build + sign + zip → dist/
+./release.sh --tag v2.1.0          # also tag the current commit
+./release.sh --tag v2.1.0 --push   # tag, push, create GitHub release, upload .zip
+```
+
+Requires the [GitHub CLI](https://cli.github.com/) (`gh`) for the `--push` step.
 
 ### Open in Xcode
 
