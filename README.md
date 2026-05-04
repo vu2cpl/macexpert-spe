@@ -58,7 +58,7 @@ Universal (arm64 + x86_64), Developer ID Application signed:
 
 [**Latest release →**](https://github.com/vu2cpl/macexpert-spe/releases/latest)
 
-Download `MacExpert-vX.Y.Z-universal.zip`, unzip, drag `MacExpert.app` to `/Applications`. On first launch macOS may show "unidentified developer" (the build is signed but not Apple-notarized) — right-click the app, choose **Open**, confirm.
+Download `MacExpert-vX.Y.Z-universal.zip`, unzip, drag `MacExpert.app` to `/Applications`, double-click. The build is **Apple-notarized and stapled** so Gatekeeper accepts it on first launch with no warning.
 
 ### Build via `build-app.sh` (universal binary, signed if you have the cert)
 
@@ -79,12 +79,23 @@ lipo -archs ../MacExpert.app/Contents/MacOS/MacExpert
 ### Cut a release (`release.sh`)
 
 ```bash
-./release.sh                       # build + sign + zip → dist/
-./release.sh --tag v2.1.0          # also tag the current commit
-./release.sh --tag v2.1.0 --push   # tag, push, create GitHub release, upload .zip
+./release.sh                                  # build + sign + zip → dist/
+./release.sh --notarize                       # also Apple-notarize + staple
+./release.sh --tag v2.1.0                     # also tag the current commit
+./release.sh --tag v2.1.0 --push              # tag, push, GitHub release + upload
+./release.sh --tag v2.1.0 --push --notarize   # full release flow
 ```
 
-Requires the [GitHub CLI](https://cli.github.com/) (`gh`) for the `--push` step.
+`--push` requires the [GitHub CLI](https://cli.github.com/). `--notarize` requires a one-time keychain credential profile named `MacExpert-Notary`:
+
+```bash
+xcrun notarytool store-credentials "MacExpert-Notary" \
+    --apple-id YOUR_APPLE_ID \
+    --team-id CHVNJ85C9F \
+    --password YOUR_APP_SPECIFIC_PASSWORD
+```
+
+App-specific password from [account.apple.com/account/manage](https://account.apple.com/account/manage) → App-Specific Passwords.
 
 ### Open in Xcode
 
