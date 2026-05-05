@@ -43,6 +43,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 - **Developer panels** — RCU Capture + RCU Parser Debug are hidden by default; toggle them on via the ladybug button in the title bar for diagnosing parser / pipeline issues.
 - **Apple Silicon + Intel** — universal binary (arm64 + x86_64) via `build-app.sh`.
 - **Persisted settings** — connection mode, host/port, dev-panels toggle all saved across launches.
+- **Reconnect on launch** — opt-out checkbox in the Connection panel. When on (default), the app restores the last `connectionMode` and auto-connects to the last server (serial port or WebSocket host) at startup. Designed for the daily-driver case where the Pi server is always running.
 
 ## Requirements
 

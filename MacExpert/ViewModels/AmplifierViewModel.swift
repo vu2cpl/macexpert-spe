@@ -7,7 +7,18 @@ final class AmplifierViewModel {
     // MARK: - Published State
     var state = AmplifierState()
     var isConnected = false
-    var connectionMode: ConnectionMode = .serial
+    var connectionMode: ConnectionMode = .serial {
+        didSet { UserDefaults.standard.set(connectionMode.rawValue, forKey: "connectionMode") }
+    }
+
+    /// True when the user wants the app to automatically reconnect to
+    /// the last successful server on launch. Persisted across launches.
+    /// Default: true — the daily case is "Pi server is always running,
+    /// I open MacExpert and it Just Works." Disable from the Connection
+    /// view if you want manual control.
+    var autoReconnectOnLaunch: Bool = true {
+        didSet { UserDefaults.standard.set(autoReconnectOnLaunch, forKey: "autoReconnectOnLaunch") }
+    }
     var detectedModel: AmplifierModel = .unknown
     var statusMessage: String = ""
     var errorMessage: String = ""
@@ -275,6 +286,25 @@ final class AmplifierViewModel {
         loadSettings()
         refreshPorts()
         observePortChanges()
+        // Auto-reconnect after a small delay so SwiftUI has time to
+        // build the view hierarchy first (otherwise connection-error
+        // toasts can fire before there's anything to display them).
+        if autoReconnectOnLaunch && hasUsableLastConnection {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                connect()
+            }
+        }
+    }
+
+    /// True when persisted settings include enough to attempt a
+    /// reconnect to the last-known transport (a serial port path for
+    /// .serial, a host for .websocket).
+    private var hasUsableLastConnection: Bool {
+        switch connectionMode {
+        case .serial:    return !selectedPortPath.isEmpty
+        case .websocket: return !wsHost.isEmpty && wsPort > 0
+        }
     }
 
     // MARK: - Connection
@@ -1067,6 +1097,17 @@ final class AmplifierViewModel {
         }
         let savedWSPort = UserDefaults.standard.integer(forKey: "wsPort")
         if savedWSPort > 0 { wsPort = savedWSPort }
+
+        if let modeRaw = UserDefaults.standard.string(forKey: "connectionMode"),
+           let mode = ConnectionMode(rawValue: modeRaw) {
+            connectionMode = mode
+        }
+        // Auto-reconnect default is true; only honour a stored "false"
+        // (UserDefaults.bool returns false for missing keys, which we
+        // don't want to misread as "user disabled it").
+        if UserDefaults.standard.object(forKey: "autoReconnectOnLaunch") != nil {
+            autoReconnectOnLaunch = UserDefaults.standard.bool(forKey: "autoReconnectOnLaunch")
+        }
     }
 
     private func observePortChanges() {
