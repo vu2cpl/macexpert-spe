@@ -49,6 +49,14 @@ final class AmplifierViewModel {
     /// glance without navigating into SETUP.
     var cachedCatType: String = ""
 
+    /// Last-known temperature unit reported by the amp on its TEMP/FANS
+    /// screen. Persists across launches so the gauge picks the right
+    /// unit even before the user has visited that menu in this session.
+    /// Values: "C" (default) or "F".
+    var cachedTempUnit: String = UserDefaults.standard.string(forKey: "cachedTempUnit") ?? "C" {
+        didSet { UserDefaults.standard.set(cachedTempUnit, forKey: "cachedTempUnit") }
+    }
+
     /// Item names shown in the CAT sub-menu, in cursor nav order. Used to
     /// map the cursor index on a `.catMenu` frame to the highlighted name.
     private static let catMenuItems = [
@@ -804,6 +812,33 @@ final class AmplifierViewModel {
                    idx < SetupSubMenu.tempFans.itemCount {
                     subMenuCursorIndex = idx
                 }
+            }
+            // Cache the amp's selected temperature unit so the main
+            // power/gauge view picks the right unit + scale on every
+            // subsequent render (including future launches via
+            // UserDefaults).
+            //
+            // The amp's TEMP/FANS screen prints "CELSIUS" or
+            // "FAHRENHEIT" (the latter properly spelled — earlier
+            // notes that called it "FARENHEIT" were wrong, see captured
+            // screenshots from 2026-05-07). We pivot on the first
+            // letter, which uniquely identifies either option:
+            //    'F' → Fahrenheit, 'C' → Celsius.
+            //
+            // Only flip on a POSITIVE marker match. If we can't
+            // confidently identify either letter (transient/partial
+            // read while navigating into the sub-menu), leave the
+            // cached value alone — otherwise an ambiguous read would
+            // silently clobber a manually-set unit (the old "F → C
+            // auto-flips, C → F never does" symptom).
+            if let scale = frame.temperatureScale?.uppercased(),
+               let first = scale.first {
+                if first == "F" {
+                    if cachedTempUnit != "F" { cachedTempUnit = "F" }
+                } else if first == "C" {
+                    if cachedTempUnit != "C" { cachedTempUnit = "C" }
+                }
+                // else: ambiguous read — keep current cached value.
             }
 
         case .manualTune:

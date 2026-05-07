@@ -19,7 +19,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 | SETUP root | 4×3 grid cursor |
 | CAT menu | 3×3 cursor + active CAT type cache |
 | CONFIG | Cursor + all 5 checkboxes (BNK A/B, Remote ANT, SO2R, Combiner) |
-| TEMP/FANS | Cursor + live CELSIUS/FARENHEIT + NORMAL/CONTEST |
+| TEMP/FANS | Cursor + live CELSIUS/FAHRENHEIT + NORMAL/CONTEST |
 | RX ANT | Cursor + YES/NO per antenna (ANT2/3/4) |
 | TUN ANT | Cursor + YES/NO per antenna (ANT1-4 + PORT + SAVE), lands on active ant on entry |
 | TUN ANT → PORT | Protocol / data bit / stop bit / parity display + 4×2 baud cursor |
@@ -33,7 +33,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 
 ### Status / meters
 - **Power display** auto-scales to the LOW / MID / HIGH setting (500 / 1000 / 1500 W on 1.5K-FA).
-- **Arc gauges** for SWR, drain current, PA temperature, supply voltage.
+- **Arc gauges** for SWR, drain current, PA temperature, supply voltage. The TEMP gauge auto-scales to °C (0-80) or °F (32-180) following the amp's TEMP/FANS setting; tap the gauge to toggle the unit manually if you haven't visited the sub-menu yet.
 - **Seven status chips** (one row): STATUS / BAND / ANT (with `b`/`t`/`r` suffix) / IN / LEVEL / MODE / CAT. Tappable ones cycle the corresponding amp setting.
 - **Alert banner** — when the amp reports a warning or alarm, a full-height banner replaces the main display (same footprint as a sub-menu, so nothing shifts).
 - **Amp-powered-off banner** — when the WS connection stays up but the amp goes silent for >4 s (FTDI still connected, but amp itself off), the main area shows a dim "POWERED OFF" panel. Watchdog drives off any received traffic (CSV state OR RCU frames) so it never spuriously trips while the amp is on.
