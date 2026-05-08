@@ -106,6 +106,23 @@ final class AmplifierViewModel {
     /// standby.
     var standbyBannerLines: [String] = []
 
+    /// True when the amp is sitting in STANDBY but the rig is keyed.
+    /// In this state the amp is bypassed (RF passes through without
+    /// amplification), so the meter sees only the exciter's drive
+    /// level — typically 25–100 W. We use this to swap the standby
+    /// banner out for the live power meter and force a 200 W scale.
+    var isStandbyTX: Bool {
+        state.opStatus == "Stby" && state.txStatus == "TX"
+    }
+
+    /// Full-scale watts for the power meter / bar. 200 W when the amp
+    /// is bypassed (`isStandbyTX`), otherwise the model's per-level
+    /// maximum (e.g. 500 / 1000 / 1500 on a 1.5K-FA at L/M/H).
+    var powerScaleWatts: Int {
+        if isStandbyTX { return 200 }
+        return detectedModel.maxPowerForLevel(state.pLevel)
+    }
+
     /// Timestamp of the last info-screen frame. Used by an auto-clear
     /// watchdog so the overlay closes when the amp transitions back to
     /// standby/operate (which can arrive as a missed/classified-away
