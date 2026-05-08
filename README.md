@@ -29,10 +29,11 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 | ANTENNA matrix | Per-band slot 1 + slot 2 with `b` / `t` / `r` suffixes; slot 1/2 cursor tracking; SAVE row |
 | YAESU / TEN-TEC / BAUD RATE | Model + speed pickers with accurate cursor decoding |
 | CAT / DISP info | CAT SETTING REPORT (two-column INPUT 1 / INPUT 2 split), SYSTEM INFO, SN, HW, CAL |
-| STANDBY | Full-area banner mirroring "EXPERT / SOLID STATE / FULLY AUTOMATIC / STANDBY" |
+| STANDBY | Banner mirroring "EXPERT / SOLID STATE / FULLY AUTOMATIC / STANDBY" with gauges (DRAIN / TEMP / VOLTAGE / SWR) still live below it |
+| STANDBY + TX (bypass) | Power meter swaps in with a 200 W full-scale (drive only — amp is bypassed); chip reads `STBY 200W`. Gauges unchanged. |
 
 ### Status / meters
-- **Power display** auto-scales to the LOW / MID / HIGH setting (500 / 1000 / 1500 W on 1.5K-FA).
+- **Power display** auto-scales to the LOW / MID / HIGH setting (500 / 1000 / 1500 W on 1.5K-FA). When the amp is in STANDBY but the rig is keyed (bypass), full-scale drops to 200 W so the exciter drive (typically 25–100 W) is readable.
 - **Arc gauges** for SWR, drain current, PA temperature, supply voltage. The TEMP gauge auto-scales to °C (0-80) or °F (32-180) following the amp's TEMP/FANS setting; tap the gauge to toggle the unit manually if you haven't visited the sub-menu yet.
 - **Seven status chips** (one row): STATUS / BAND / ANT (with `b`/`t`/`r` suffix) / IN / LEVEL / MODE / CAT. Tappable ones cycle the corresponding amp setting.
 - **Alert banner** — when the amp reports a warning or alarm, a full-height banner replaces the main display (same footprint as a sub-menu, so nothing shifts).
