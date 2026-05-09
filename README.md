@@ -215,4 +215,4 @@ MacExpert/
 
 ## License
 
-MIT
+Released under the MIT License — see [`LICENSE`](LICENSE). Copyright © 2026 Manoj Ramawarrier (VU2CPL).
