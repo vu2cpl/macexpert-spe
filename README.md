@@ -30,10 +30,10 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 | YAESU / TEN-TEC / BAUD RATE | Model + speed pickers with accurate cursor decoding |
 | CAT / DISP info | CAT SETTING REPORT (two-column INPUT 1 / INPUT 2 split), SYSTEM INFO, SN, HW, CAL |
 | STANDBY | Banner mirroring "EXPERT / SOLID STATE / FULLY AUTOMATIC / STANDBY" with gauges (DRAIN / TEMP / VOLTAGE / SWR) still live below it |
-| STANDBY + TX (bypass) | Power meter swaps in with a 200 W full-scale (drive only — amp is bypassed); chip reads `STBY 200W`. Gauges unchanged. |
+| STANDBY + TX (bypass) | Power meter swaps in (drive only — amp is bypassed). Bar auto-ranges across `5 / 25 / 50 / 100 / 200 W` so QRP signals are still readable; chip reads e.g. `STBY 25W`. Gauges unchanged. |
 
 ### Status / meters
-- **Power display** auto-scales to the LOW / MID / HIGH setting (500 / 1000 / 1500 W on 1.5K-FA). When the amp is in STANDBY but the rig is keyed (bypass), full-scale drops to 200 W so the exciter drive (typically 25–100 W) is readable.
+- **Power display** auto-scales to the LOW / MID / HIGH setting (500 / 1000 / 1500 W on 1.5K-FA). When the amp is in STANDBY but the rig is keyed (bypass), the bar auto-ranges across 5 / 25 / 50 / 100 / 200 W — picking the smallest rung that clears the current drive — so QRP through 200 W signals are all readable.
 - **Arc gauges** for SWR, drain current, PA temperature, supply voltage. The TEMP gauge auto-scales to °C (0-80) or °F (32-180) following the amp's TEMP/FANS setting; tap the gauge to toggle the unit manually if you haven't visited the sub-menu yet.
 - **Seven status chips** (one row): STATUS / BAND / ANT (with `b`/`t`/`r` suffix) / IN / LEVEL / MODE / CAT. Tappable ones cycle the corresponding amp setting.
 - **Alert banner** — when the amp reports a warning or alarm, a full-height banner replaces the main display (same footprint as a sub-menu, so nothing shifts).
