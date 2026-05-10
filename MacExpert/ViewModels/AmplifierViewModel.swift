@@ -115,11 +115,22 @@ final class AmplifierViewModel {
         state.opStatus == "Stby" && state.txStatus == "TX"
     }
 
-    /// Full-scale watts for the power meter / bar. 200 W when the amp
-    /// is bypassed (`isStandbyTX`), otherwise the model's per-level
-    /// maximum (e.g. 500 / 1000 / 1500 on a 1.5K-FA at L/M/H).
+    /// Full-scale watts for the power meter / bar.
+    ///
+    /// - **STANDBY + TX (bypass)**: auto-ranges across the ladder
+    ///   `5 / 25 / 50 / 100 / 200 W` — the smallest rung whose
+    ///   ceiling clears the current `powerWatts`, so a 5 W QRP signal
+    ///   isn't lost on a 200 W scale. The 5→25→50→100→200 rungs are
+    ///   ≥2× apart, which gives enough natural hysteresis that the
+    ///   bar does not flicker on voice peaks.
+    /// - **OPERATE / everything else**: model's per-level maximum
+    ///   (e.g. 500 / 1000 / 1500 W on a 1.5K-FA at L / M / H).
     var powerScaleWatts: Int {
-        if isStandbyTX { return 200 }
+        if isStandbyTX {
+            let p = state.powerWatts
+            for rung in [5, 25, 50, 100, 200] where p <= rung { return rung }
+            return 200
+        }
         return detectedModel.maxPowerForLevel(state.pLevel)
     }
 
