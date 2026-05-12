@@ -1064,10 +1064,25 @@ final class AmplifierViewModel {
         }
     }
 
-    /// Start a 1 Hz watchdog that flips `isAmpResponding` to false when
-    /// no traffic has arrived for more than 4 seconds. Triggers a
-    /// SwiftUI re-render so the main view can show "POWERED OFF"
-    /// instead of a stale STANDBY banner.
+    /// 1 Hz watchdog that flips `isAmpResponding` to false when no
+    /// traffic has arrived for more than `ampSilenceThreshold` seconds.
+    /// Triggers a SwiftUI re-render so the main view can show
+    /// "POWERED OFF" instead of a stale STANDBY banner.
+    ///
+    /// Threshold is 8 s — wider than the WS presence-heartbeat
+    /// cadence (5 s) plus reasonable jitter, so heartbeats refresh
+    /// `lastTrafficAt` before the watchdog can fire spuriously. With
+    /// a tighter 4-5 s threshold the watchdog used to race the
+    /// heartbeat: at t=4 after each heartbeat it would flip the flag
+    /// false for ~1 s until the next heartbeat at t=5 flipped it
+    /// back, producing a visible 1 Hz flicker of the POWERED OFF
+    /// banner during normal operation (the spe-remote gateway also
+    /// dedups identical CSV JSON for up to 15 s between force-
+    /// republishes, so state-msg cadence alone can't be relied on).
+    /// Serial mode pays a small price (8 s amp-off detection
+    /// latency instead of 4 s) — over WS the explicit `serial:"down"`
+    /// heartbeat still flips the flag within ~5 s.
+    private let ampSilenceThreshold: TimeInterval = 8.0
     private func startAmpWatchdogIfNeeded() {
         guard ampWatchdogTask == nil else { return }
         ampWatchdogTask = Task { [weak self] in
@@ -1075,8 +1090,9 @@ final class AmplifierViewModel {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self else { return }
                 await MainActor.run {
+                    let threshold = self.ampSilenceThreshold
                     let stale = self.lastTrafficAt
-                        .map { Date().timeIntervalSince($0) >= 4.0 } ?? true
+                        .map { Date().timeIntervalSince($0) >= threshold } ?? true
                     let nowResponding = !stale
                     if self.isAmpResponding != nowResponding {
                         self.isAmpResponding = nowResponding
