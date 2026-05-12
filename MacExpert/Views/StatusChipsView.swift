@@ -17,53 +17,66 @@ struct StatusChipsView: View {
     var body: some View {
         // Single row of equal-width chips, compact sizing so 7 fit without
         // wrapping on the narrow window layout.
+        //
+        // When the amp is unresponsive (`!vm.isAmpResponding`) every
+        // CSV-derived field is stale — show `—` and a muted accent so
+        // we don't lie about band / antenna / TX state. CAT is cached
+        // from the amp's own config screen and survives a power cycle,
+        // so it stays as-is.
+        let alive = vm.isAmpResponding
+        let dashed = "—"
+        let mutedAccent: Color = Color(white: 0.35)
+
         HStack(spacing: 3) {
             StatusChip(
                 label: "STATUS",
-                value: vm.state.txStatus,
-                accent: vm.state.txStatus == "TX" ? .red : .green,
+                value: alive ? vm.state.txStatus : dashed,
+                accent: alive ? (vm.state.txStatus == "TX" ? .red : .green)
+                              : mutedAccent,
                 compact: true
             )
             StatusChip(
                 label: "BAND",
-                value: vm.state.band,
-                accent: .cyan,
-                onTap: { vm.sendCommand(.bandUp) },
-                onLongPress: { vm.sendCommand(.bandDown) },
+                value: alive ? vm.state.band : dashed,
+                accent: alive ? .cyan : mutedAccent,
+                onTap: alive ? { vm.sendCommand(.bandUp) } : nil,
+                onLongPress: alive ? { vm.sendCommand(.bandDown) } : nil,
                 compact: true
             )
             StatusChip(
                 label: "ANT",
-                value: vm.txAntennaWithSuffix,
-                accent: .cyan,
-                onTap: { vm.sendCommand(.antenna) },
+                value: alive ? vm.txAntennaWithSuffix : dashed,
+                accent: alive ? .cyan : mutedAccent,
+                onTap: alive ? { vm.sendCommand(.antenna) } : nil,
                 compact: true
             )
             StatusChip(
                 label: "IN",
-                value: vm.state.input,
-                accent: .cyan,
-                onTap: { vm.sendCommand(.input) },
+                value: alive ? vm.state.input : dashed,
+                accent: alive ? .cyan : mutedAccent,
+                onTap: alive ? { vm.sendCommand(.input) } : nil,
                 compact: true
             )
             StatusChip(
                 label: "LEVEL",
-                value: Self.levelLabel(vm.state.pLevel),
-                accent: .cyan,
-                onTap: { vm.sendCommand(.power) },
+                value: alive ? Self.levelLabel(vm.state.pLevel) : dashed,
+                accent: alive ? .cyan : mutedAccent,
+                onTap: alive ? { vm.sendCommand(.power) } : nil,
                 compact: true
             )
             StatusChip(
                 label: "MODE",
-                value: vm.state.opStatus == "Oper" ? "OPER" : "STBY",
-                accent: vm.state.opStatus == "Oper" ? .orange : .gray,
-                onTap: { vm.sendCommand(.operate) },
+                value: alive ? (vm.state.opStatus == "Oper" ? "OPER" : "STBY")
+                             : dashed,
+                accent: alive ? (vm.state.opStatus == "Oper" ? .orange : .gray)
+                              : mutedAccent,
+                onTap: alive ? { vm.sendCommand(.operate) } : nil,
                 compact: true
             )
             StatusChip(
                 label: "CAT",
                 value: vm.cachedCatType.isEmpty ? "—" : vm.cachedCatType,
-                accent: .cyan,
+                accent: alive ? .cyan : mutedAccent,
                 compact: true
             )
         }

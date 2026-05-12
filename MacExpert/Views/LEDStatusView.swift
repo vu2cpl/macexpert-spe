@@ -4,12 +4,20 @@ struct LEDStatusView: View {
     @Environment(AmplifierViewModel.self) private var vm
 
     var body: some View {
+        // SERIAL and POWER track the WS / serial link itself, so they
+        // stay lit even when the amp's CPU is off — that's the FTDI
+        // link the gateway distinguishes from amp liveness.
+        //
+        // OPER / TX / ALARM derive from stale CSV state when the amp
+        // stops responding, so force them gray once `isAmpResponding`
+        // flips false. SET and TUNE are local-state driven and stay
+        // accurate regardless.
         HStack(spacing: 0) {
             LEDIndicator(label: "SERIAL", color: vm.isConnected ? .green : .gray)
             LEDIndicator(label: "POWER", color: vm.isConnected ? .green : .gray)
             LEDIndicator(label: "OPER", color: operateColor)
             LEDIndicator(label: "TUNE", color: tuneColor)
-            LEDIndicator(label: "TX", color: vm.state.txStatus == "TX" ? .red : .gray)
+            LEDIndicator(label: "TX", color: txColor)
             LEDIndicator(label: "ALARM", color: alarmColor)
             LEDIndicator(label: "SET", color: vm.isInSetupMode ? .green : .gray)
         }
@@ -19,7 +27,13 @@ struct LEDStatusView: View {
     }
 
     private var operateColor: Color {
-        vm.state.opStatus == "Oper" ? .orange : .gray
+        guard vm.isAmpResponding else { return .gray }
+        return vm.state.opStatus == "Oper" ? .orange : .gray
+    }
+
+    private var txColor: Color {
+        guard vm.isAmpResponding else { return .gray }
+        return vm.state.txStatus == "TX" ? .red : .gray
     }
 
     private var tuneColor: Color {
@@ -31,6 +45,7 @@ struct LEDStatusView: View {
     }
 
     private var alarmColor: Color {
+        guard vm.isAmpResponding else { return .gray }
         if !vm.state.error.isEmpty { return .red }
         if !vm.state.warnings.isEmpty { return .orange }
         return .gray

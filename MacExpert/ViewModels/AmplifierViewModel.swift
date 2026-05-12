@@ -405,6 +405,9 @@ final class AmplifierViewModel {
                     ws.onRCUTick = { [weak self] in
                         self?.rcuTicksSent += 1
                     }
+                    ws.onHeartbeat = { [weak self] hb in
+                        self?.handleHeartbeat(hb)
+                    }
                     connection = ws
                     try await ws.connect()
                 }
@@ -1033,6 +1036,32 @@ final class AmplifierViewModel {
             isAmpResponding = true
         }
         startAmpWatchdogIfNeeded()
+    }
+
+    /// Handle a spe-remote presence heartbeat (WS transport only).
+    ///
+    /// `serial == "up"`: amp is talking to the gateway — treat like
+    /// fresh traffic so the silence watchdog is satisfied even on the
+    /// 15 s force-republish dedup window.
+    ///
+    /// `serial == "down"`: amp is dead (CPU off, but FTDI link still
+    /// alive). Set `isAmpResponding = false` immediately for a snappy
+    /// "POWERED OFF" banner. Also clear `lastTrafficAt` so the 1 Hz
+    /// silence watchdog can't flip the flag back to `true` during the
+    /// gap between the heartbeat (5 s cadence) and the watchdog's
+    /// own staleness threshold (4 s) — without this, last-known
+    /// traffic that's only 2-3 s old would briefly out-vote the
+    /// heartbeat's authority.
+    func handleHeartbeat(_ hb: PresenceHeartbeat) {
+        if hb.ampAlive {
+            markAmpTraffic()
+        } else {
+            lastTrafficAt = nil
+            if isAmpResponding {
+                isAmpResponding = false
+            }
+            startAmpWatchdogIfNeeded()
+        }
     }
 
     /// Start a 1 Hz watchdog that flips `isAmpResponding` to false when
