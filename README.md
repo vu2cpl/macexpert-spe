@@ -37,7 +37,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 - **Arc gauges** for SWR, drain current, PA temperature, supply voltage. The TEMP gauge auto-scales to °C (0-80) or °F (32-180) following the amp's TEMP/FANS setting; tap the gauge to toggle the unit manually if you haven't visited the sub-menu yet.
 - **Seven status chips** (one row): STATUS / BAND / ANT (with `b`/`t`/`r` suffix) / IN / LEVEL / MODE / CAT. Tappable ones cycle the corresponding amp setting.
 - **Alert banner** — when the amp reports a warning or alarm, a full-height banner replaces the main display (same footprint as a sub-menu, so nothing shifts).
-- **Amp-powered-off banner** — when the WS connection stays up but the amp goes silent for >4 s (FTDI still connected, but amp itself off), the main area shows a dim "POWERED OFF" panel. Watchdog drives off any received traffic (CSV state OR RCU frames) so it never spuriously trips while the amp is on.
+- **Amp-powered-off banner** — when the FTDI link stays up but the amp's CPU is off, the main area shows a dim "POWERED OFF" panel and the BAND / ANT / IN / LEVEL / MODE / STATUS chips clear to `—` so nothing reads stale. Detection has two sources: (a) over WebSocket, the gateway's explicit 5 s presence heartbeat (`serial: "up"|"down"`) flips the banner within ~5 s; (b) over serial, a 4 s silence watchdog driven by any received CSV state or RCU frame. CAT chip keeps its cached value across power cycles. OPER / TX / ALARM LEDs blank out too.
 
 ### UI niceties
 - **Fixed-height LCDContainer** — every sub-menu, standby banner, info screen, and alert banner is sized to match the power+gauges block, so the controls row below never moves as you navigate.
@@ -50,7 +50,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 
 - macOS 14.0 (Sonoma) or later.
 - For serial mode: USB cable to SPE Expert amplifier, and install ORSSerialPort (handled by SwiftPM).
-- For WebSocket mode: [spe-remote](https://github.com/vu2cpl/spe-remote) running on a network-accessible host — the Pi needs the RCU-proxy build (commit `919e58d` or later on the `main` branch).
+- For WebSocket mode: [spe-remote](https://github.com/vu2cpl/spe-remote) running on a network-accessible host. The Pi needs the RCU-proxy build (commit `919e58d` or later); the presence-heartbeat fast-path needs commit `ab6d94d` or later. Older builds still work — the Mac falls back to the 4 s silence watchdog for amp-off detection.
 
 ## Install and Run
 
