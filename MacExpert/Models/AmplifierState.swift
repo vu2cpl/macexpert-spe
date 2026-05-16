@@ -47,10 +47,17 @@ struct AmplifierState: Equatable, Codable {
     }
 
     /// Custom decoder — spe-remote JSON only sends a subset of fields.
-    /// Fields not present in the JSON get their default values.
+    /// Fields not present in the JSON get their default values, EXCEPT
+    /// `op_status` which is required: if it's missing the JSON isn't an
+    /// amp-state message at all (e.g. it's a `power_result` ack or some
+    /// other message type that happens to be an object), and decoding
+    /// it as a defaulted state would silently flip `opStatus` to "Stby"
+    /// — producing a visible STANDBY-banner flicker mid-OPER. Throwing
+    /// here makes the WebSocket discriminator fall through cleanly to
+    /// the next message-type handler instead.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        opStatus = (try? c.decode(String.self, forKey: .opStatus)) ?? "Stby"
+        opStatus = try c.decode(String.self, forKey: .opStatus)
         txStatus = (try? c.decode(String.self, forKey: .txStatus)) ?? "RX"
         input = (try? c.decode(String.self, forKey: .input)) ?? "0"
         band = (try? c.decode(String.self, forKey: .band)) ?? "---"
