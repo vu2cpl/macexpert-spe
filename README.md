@@ -78,6 +78,18 @@ lipo -archs ../MacExpert.app/Contents/MacOS/MacExpert
 # x86_64 arm64
 ```
 
+### Install the dev build into `/Applications` (`install.sh`)
+
+After `build-app.sh` produces `../MacExpert.app`, the running copy of MacExpert is still whatever's installed in `/Applications/MacExpert.app` — Dock, Spotlight and `open -a MacExpert` all launch the install, not the build. `install.sh` does the swap:
+
+```bash
+./install.sh             # copy the existing build over /Applications/, relaunch
+./install.sh --build     # run build-app.sh first, then install
+./install.sh --backup    # keep the prior install as /Applications/MacExpert-prev.app
+```
+
+It quits any running MacExpert first, `rsync --delete`s the bundle into `/Applications/`, re-verifies the codesigning, and `open`s the result. Run after every `build-app.sh` when iterating on fixes — otherwise the new code never actually executes.
+
 ### Cut a release (`release.sh`)
 
 ```bash
@@ -162,6 +174,8 @@ Based on the **SPE Application Programmer's Guide Rev 1.1** (15.10.2015) for the
 MacExpert/
 ├── MacExpertApp.swift              # App entry point
 ├── build-app.sh                    # Universal-binary build + .app assembly
+├── install.sh                      # Install dev build into /Applications + relaunch
+├── release.sh                      # Build, sign, notarize, zip, GitHub-release
 ├── Models/
 │   ├── AmplifierState.swift        # CSV-derived state (Codable; JSON over WS)
 │   ├── AmplifierModel.swift        # Model enum + LOW/MID/HIGH power limits
