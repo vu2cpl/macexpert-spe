@@ -1,0 +1,113 @@
+name: Release
+
+# Produces a GitHub Release with the macOS app (.zip) and the Amateur Radio Suite plugin
+# (.radioplugin). Triggered three ways:
+#   1. PR merged into main  -> auto-bump the latest vX.Y.Z tag (patch) and release.
+#   2. Push a vX.Y.Z tag    -> release that tag.
+#   3. workflow_dispatch     -> release the given version (tag created on main if absent).
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (without the leading v, e.g. 0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build & publish release
+    # Only on a real merge (or tag/dispatch) — a closed-but-unmerged PR must not release.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use latest Xcode
+        # MacExpert needs a Swift 6-era toolchain (SwiftUI main-actor isolation); the
+        # runner default (Xcode 15.4) fails. Applies to swift build/test + build-app.sh.
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+
+      - name: Resolve version + tag
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ inputs.version }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            git fetch --tags --force --quiet
+            LATEST="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+            if [ -z "$LATEST" ]; then
+              V="0.1.0"
+            else
+              IFS=. read -r MA MI PA <<< "${LATEST#v}"
+              V="${MA}.${MI}.$((PA + 1))"
+            fi
+            while git rev-parse "refs/tags/v$V" >/dev/null 2>&1; do
+              IFS=. read -r MA MI PA <<< "$V"; V="${MA}.${MI}.$((PA + 1))"
+            done
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V"   >> "$GITHUB_OUTPUT"
+          echo "Releasing v$V"
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build & test
+        run: |
+          swift build
+          swift test
+
+      - name: Build universal .app
+        run: ./build-app.sh
+
+      - name: Build plugin package (.appex / .radioplugin)
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          ./scripts/make-radioplugin.sh
+
+      - name: Package release assets
+        id: package
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          mkdir -p dist
+          # build-app.sh writes MacExpert.app next to the repo checkout.
+          APP="$(cd .. && pwd)/MacExpert.app"
+          test -d "$APP" || { echo "::error::MacExpert.app not found at $APP"; ls -la ..; exit 1; }
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/MacExpert-${V}-macOS.zip"
+          cp dist/MacExpert.radioplugin "dist/MacExpert-${V}.radioplugin"
+          ( cd dist && shasum -a 256 MacExpert-${V}-macOS.zip MacExpert-${V}.radioplugin > SHA256SUMS )
+          ls -la dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --target main \
+            --title "${{ steps.ver.outputs.tag }}" \
+            --generate-notes \
+            "dist/MacExpert-${V}-macOS.zip" \
+            "dist/MacExpert-${V}.radioplugin" \
+            dist/SHA256SUMS
