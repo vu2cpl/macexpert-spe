@@ -36,6 +36,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Use latest Xcode
+        # MacExpert needs a Swift 6-era toolchain (SwiftUI main-actor isolation); the
+        # runner default (Xcode 15.4) fails. Applies to swift build/test + build-app.sh.
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+
       - name: Resolve version + tag
         id: ver
         run: |
