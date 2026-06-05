@@ -14,6 +14,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PKG_DIR="$SCRIPT_DIR"
 APP_DIR="$(dirname "$SCRIPT_DIR")/MacExpert.app"
 
+# Version stamped into the bundle's Info.plist (override via env). The release workflow
+# passes the resolved release version; local builds default to a dev marker.
+VERSION="${VERSION:-0.0.0-dev}"
+BUNDLE_ID="com.vu2cpl.MacExpert"
+
 cd "$PKG_DIR"
 
 echo "Building MacExpert (release, arm64)..."
@@ -46,5 +51,42 @@ for bundle in "$PKG_DIR/.build/arm64-apple-macosx/release/"*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$APP_DIR/Contents/Resources/"
 done
 
-echo "Done! App at: $APP_DIR"
+# Info.plist — without this the bundle has no identity: it won't launch cleanly and (once an
+# ExtensionKit .appex is embedded) the extension won't register with macOS / the Suite.
+cat > "$APP_DIR/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>MacExpert</string>
+    <key>CFBundleDisplayName</key>
+    <string>MacExpert</string>
+    <key>CFBundleIdentifier</key>
+    <string>${BUNDLE_ID}</string>
+    <key>CFBundleVersion</key>
+    <string>${VERSION}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${VERSION}</string>
+    <key>CFBundleExecutable</key>
+    <string>MacExpert</string>
+    <key>CFBundleIconFile</key>
+    <string>ExpertIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+</dict>
+</plist>
+PLIST
+
+echo "Done! App at: $APP_DIR (v$VERSION, $BUNDLE_ID)"
 echo "Run: open \"$APP_DIR\""
