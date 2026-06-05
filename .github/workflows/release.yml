@@ -74,8 +74,22 @@ jobs:
           swift build
           swift test
 
-      - name: Build universal .app
-        run: ./build-app.sh
+      - name: Build signed + notarized app (.app with embedded extension) + .zip/.dmg
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          # Signing/notarization secrets. When unset, package-signed.sh falls back to ad-hoc
+          # and skips notarization — the build still succeeds, but the released app's extension
+          # will not register in the Suite on other Macs.
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          ./scripts/package-signed.sh        # -> dist/MacExpert-<version>-macOS.{zip,dmg}
 
       - name: Build plugin package (.appex / .radioplugin)
         run: |
@@ -89,14 +103,48 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ steps.ver.outputs.version }}"
-          mkdir -p dist
-          # build-app.sh writes MacExpert.app next to the repo checkout.
-          APP="$(cd .. && pwd)/MacExpert.app"
-          test -d "$APP" || { echo "::error::MacExpert.app not found at $APP"; ls -la ..; exit 1; }
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/MacExpert-${V}-macOS.zip"
+          # package-signed.sh already produced the signed/notarized .zip + .dmg in dist/.
+          test -f "dist/MacExpert-${V}-macOS.zip" || { echo "::error::signed .zip missing"; ls -la dist; exit 1; }
           cp dist/MacExpert.radioplugin "dist/MacExpert-${V}.radioplugin"
-          ( cd dist && shasum -a 256 MacExpert-${V}-macOS.zip MacExpert-${V}.radioplugin > SHA256SUMS )
+          ( cd dist && shasum -a 256 "MacExpert-${V}-macOS.zip" "MacExpert-${V}-macOS.dmg" "MacExpert-${V}.radioplugin" > SHA256SUMS )
           ls -la dist
+
+      - name: Compose release notes
+        env:
+          V: ${{ steps.ver.outputs.version }}
+          # 'true' only when the signing + notary secrets are present (notarized build).
+          NOTARIZED: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.NOTARY_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## MacExpert ${V}"
+            echo
+            echo "macOS controller for the SPE Expert amplifier + Amateur Radio Suite plugin (\`MacExpert-${V}.radioplugin\`)."
+            echo
+            echo "### Install (standalone app)"
+            echo
+            echo "1. Download \`MacExpert-${V}-macOS.dmg\` (or \`.zip\`) below."
+            echo "2. Open it and drag **MacExpert.app** to \`/Applications\`."
+            if [ "${NOTARIZED}" = "true" ]; then
+              echo "3. Launch it — signed with Developer ID and **Apple-notarized**, so no Gatekeeper bypass is needed."
+            else
+              echo "3. **One-time Gatekeeper bypass** (this build is ad-hoc-signed, not Apple-notarized):"
+              echo "   \`\`\`sh"
+              echo "   xattr -dr com.apple.quarantine /Applications/MacExpert.app"
+              echo "   \`\`\`"
+              echo "4. Launch normally."
+            fi
+            echo
+            echo "### Use as an Amateur Radio Suite plugin"
+            echo
+            if [ "${NOTARIZED}" = "true" ]; then
+              echo "Installing **MacExpert.app** to \`/Applications\` and launching it once registers the embedded extension; the [Suite](https://github.com/VU3ESV/AmateurRadioSuite) then discovers it automatically under **Manage Plugins** — enable **SPE Expert** to host it in a tab."
+              echo
+              echo "Or sideload the package: in the Suite, **Manage Plugins → Browse → \"Add Plugin from File…\"**, pick \`MacExpert-${V}.radioplugin\`, then **Install**."
+            else
+              echo "> ⚠️ This is an **ad-hoc** build — its extension will not register in the Suite on other Macs. A Developer-ID-signed + Apple-notarized release is required for that."
+            fi
+          } > RELEASE_NOTES.md
 
       - name: Create GitHub Release
         env:
@@ -108,6 +156,8 @@ jobs:
             --target main \
             --title "${{ steps.ver.outputs.tag }}" \
             --generate-notes \
+            --notes-file RELEASE_NOTES.md \
             "dist/MacExpert-${V}-macOS.zip" \
+            "dist/MacExpert-${V}-macOS.dmg" \
             "dist/MacExpert-${V}.radioplugin" \
             dist/SHA256SUMS
