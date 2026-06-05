@@ -10,3 +10,4 @@ Xcode/*.xcodeproj/
 DerivedData/
 .swiftpm/
 Package.resolved
+dist/

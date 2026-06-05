@@ -1,5 +1,24 @@
 import Foundation
 
+/// Presence heartbeat emitted by spe-remote every ~5 s. `serial` reports
+/// amp liveness independent of the WebSocket connection — the FTDI USB
+/// link to the Pi stays alive even when the amp's CPU is powered off,
+/// so the gateway distinguishes "WS up, amp talking" (`up`) from
+/// "WS up, amp silent" (`down`) and tells us explicitly.
+///
+/// Wire format (per spe-remote/spe/websocket_handler.py):
+/// ```
+/// { "heartbeat": true, "serial": "up"|"down", "ts": 1778607559.5, "clients": 3 }
+/// ```
+struct PresenceHeartbeat: Decodable {
+    let heartbeat: Bool
+    let serial: String
+    let ts: Double
+    let clients: Int
+
+    var ampAlive: Bool { serial == "up" }
+}
+
 /// WebSocket connection to the spe-remote server.
 @MainActor
 final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendable {
@@ -17,6 +36,10 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
     /// frames even though we aren't driving the OFF→ON ticker locally (the
     /// Pi server does that on our behalf).
     var onRCUTick: (() -> Void)?
+    /// Fired on every spe-remote presence heartbeat (~5 s cadence). Use
+    /// `heartbeat.ampAlive` to drive the amp-off banner directly instead
+    /// of waiting on the silence watchdog.
+    var onHeartbeat: ((PresenceHeartbeat) -> Void)?
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
@@ -133,16 +156,22 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
         switch message {
         case .string(let text):
             guard let data = text.data(using: .utf8) else { return }
-            do {
-                let decoder = JSONDecoder()
-                let state = try decoder.decode(AmplifierState.self, from: data)
-                await MainActor.run {
-                    onStateUpdate?(state)
-                }
-            } catch {
-                // Might be a power_result or other JSON
-                print("JSON decode note: \(error.localizedDescription)")
+            // spe-remote multiplexes several JSON message types on the
+            // same socket. Discriminate by root keys (see handover doc
+            // 2026-05-12): heartbeat → presence; op_status → state
+            // snapshot; power_result → command ack. Anything else is
+            // dropped silently — the gateway is forward-compatible.
+            let decoder = JSONDecoder()
+            if let hb = try? decoder.decode(PresenceHeartbeat.self, from: data),
+               hb.heartbeat {
+                await MainActor.run { onHeartbeat?(hb) }
+                return
             }
+            if let state = try? decoder.decode(AmplifierState.self, from: data) {
+                await MainActor.run { onStateUpdate?(state) }
+                return
+            }
+            // power_result / unknown — no UI surface yet.
         case .data(let data):
             // spe-remote sends RCU LCD frames as binary messages (the bytes
             // after AA AA AA 6A). Anything else binary-shaped is unexpected
