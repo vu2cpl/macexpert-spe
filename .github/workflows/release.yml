@@ -77,7 +77,7 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && needs.gate.outputs.skip != 'true'
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
