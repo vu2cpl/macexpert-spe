@@ -147,6 +147,33 @@ struct RCUFrame: Equatable {
     /// Raw 367-byte payload, kept for future field extraction and debugging.
     let raw: [UInt8]
 
+    /// True while the front-panel TUNE LED is on — covers BOTH the
+    /// "waiting for carrier" phase (TUNE pressed, no drive yet) and the
+    /// "ATU actively sweeping L/C" phase. Goes false when the LED goes
+    /// off (ATU done, or amp gave up with "TUNING WITH NO POWER" alarm).
+    ///
+    /// Located by labelled-diff capture on 2026-06-19 (see
+    /// docs/REVERSE_ENGINEERING.md "Hunting status flags"): byte 4 bit 6
+    /// flips with the LED across all amp/screen states. The same byte
+    /// also carries the LCD-screen-class bit (bit 3 — see
+    /// `isOnStandbyLogoScreen`), so the value oscillates between four
+    /// constants: 0xF8/0xB8 on the standby-logo screen and 0xF0/0xB0
+    /// on the bypass-OP screen.
+    var isTuneActive: Bool {
+        raw.count > 4 && (raw[4] & 0x40) == 0
+    }
+
+    /// True when the LCD is showing the STANDBY logo splash (EXPERT 1.5K
+    /// FA / SOLID STATE / FULLY AUTOMATIC / STANDBY) rather than the
+    /// main bypass-OP screen. byte 4 bit 3 — empirically verified
+    /// alongside `isTuneActive`. Equivalent to "amp is in Stby+RX and
+    /// has settled into the idle screen"; the bypass-OP screen shows
+    /// instead whenever there's a carrier passing through (Stby+TX) or
+    /// when the amp is in OPER mode.
+    var isOnStandbyLogoScreen: Bool {
+        raw.count > 4 && (raw[4] & 0x08) != 0
+    }
+
     // MARK: - Parsing
 
     /// Parse one 367-byte RCU display payload. Returns nil if the payload is

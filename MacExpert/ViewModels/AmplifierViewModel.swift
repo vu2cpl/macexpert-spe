@@ -220,16 +220,31 @@ final class AmplifierViewModel {
     /// stale OP frame while processing the SET that entered SETUP).
     private var setupEnteredAt: Date?
 
-    /// True while the amp is (believed to be) actively running an ATU tune.
-    /// Drives the TUNE LED indicator. Currently set only on app-initiated
-    /// TUNE presses and auto-cleared after the tune timeout; physical
-    /// TUNE-button presses on the amp aren't detected yet — we need a
-    /// reliable amp-side signal for that.
+    /// True while the front-panel TUNE LED is on — covers both "waiting
+    /// for carrier" and "ATU actively sweeping". Drives the TUNE LED
+    /// indicator in the app.
+    ///
+    /// Primary source: `RCUFrame.isTuneActive` (byte 4 bit 6, identified
+    /// 2026-06-19 — see docs/REVERSE_ENGINEERING.md). Every RCU frame
+    /// overwrites this with the amp's current TUNE-LED state, so a
+    /// physical front-panel TUNE press lights the app indicator within
+    /// ~1.5 s (the RCU tick interval) and an ATU completion clears it
+    /// equally quickly.
+    ///
+    /// Bridge source: app-initiated TUNE presses also flip it true
+    /// immediately for snappy local feedback (RCU lag would otherwise
+    /// leave the LED dark for up to 1.5 s after the user taps TUNE).
+    /// The next RCU frame either confirms (`isTuneActive == true` —
+    /// keeps it lit) or contradicts (`false` — turns it off, in case
+    /// the amp rejected the press, e.g. interlock with PTT-on). Either
+    /// way we converge on the amp's real state.
     var isTuningInProgress: Bool = false
     private var tuneTimeoutTask: Task<Void, Never>?
 
-    /// How long to keep the TUNE LED lit after an app-initiated tune press.
-    /// Matches the amp's own tune-timeout (roughly).
+    /// Fallback timeout for the snappy on-press optimism above — clears
+    /// `isTuningInProgress` if no RCU frame has arrived to confirm or
+    /// deny within the window. Only matters when the RCU stream is
+    /// stalled (serial mode without RCU enabled, or a wedged amp).
     private let tuneTimeoutDuration: TimeInterval = 5
 
     /// Timestamp of the most recent cursor-navigation command we sent to
@@ -751,6 +766,21 @@ final class AmplifierViewModel {
         rcuFrame = frame
         rcuFrameCount += 1
 
+        // TUNE LED truth: byte 4 bit 6, set live by the amp firmware.
+        // Overrides the on-press optimism set by `sendCommand(.tune)`,
+        // so the app indicator converges to the amp's real LED state
+        // every RCU tick (~1.5 s).
+        if isTuningInProgress != frame.isTuneActive {
+            isTuningInProgress = frame.isTuneActive
+            if !frame.isTuneActive {
+                // Real signal arrived saying tune is done — drop the
+                // safety-net timer so it doesn't spuriously bounce
+                // isTuningInProgress later.
+                tuneTimeoutTask?.cancel()
+                tuneTimeoutTask = nil
+            }
+        }
+
         // Take bank letter from the frame — it's direct from the amp's LCD
         // so it's the freshest source of truth while we're in RCU mode.
         if let letter = frame.bankLetter {
@@ -1183,14 +1213,12 @@ final class AmplifierViewModel {
             atu: newState.atuStatus
         )
 
-        // Physical TUNE-button detection: not currently implemented.
-        // The SPE CSV protocol (per the Application Programmer's Guide)
-        // exposes no dedicated "tune in progress" bit. Warning code "W"
+        // Physical TUNE-button detection lives in handleRCUFrame now:
+        // RCUFrame.isTuneActive reads byte 4 bit 6 (located via the
+        // labelled-diff capture on 2026-06-19). The CSV protocol still
+        // doesn't expose anything useful here — warning code "W"
         // (TUNING WITH NO POWER) only appears when the user pressed TUNE
-        // but no RF drive arrived — so a successful tune never raises it,
-        // making "W" unreliable as a tune-running signal. For now the
-        // TUNE LED is driven exclusively by the app-initiated 5s timer
-        // set in `sendCommand(.tune)`.
+        // but no RF drive arrived, so a successful tune never raises it.
     }
 
     private func loadSettings() {
