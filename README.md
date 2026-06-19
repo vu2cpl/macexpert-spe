@@ -39,6 +39,14 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 - **Alert banner** — when the amp reports a warning or alarm, a full-height banner replaces the main display (same footprint as a sub-menu, so nothing shifts).
 - **Amp-powered-off banner** — when the FTDI link stays up but the amp's CPU is off, the main area shows a dim "POWERED OFF" panel and the BAND / ANT / IN / LEVEL / MODE / STATUS chips clear to `—` so nothing reads stale. Detection has two sources: (a) over WebSocket, the gateway's explicit 5 s presence heartbeat (`serial: "up"|"down"`) flips the banner within ~5 s; (b) over serial, a 8 s silence watchdog driven by any received CSV state or RCU frame. CAT chip keeps its cached value across power cycles. OPER / TX / ALARM LEDs blank out too.
 
+### ATU band sweep (WebSocket mode, requires Flex)
+- **Sweep panel** behind the **SWEEP** button in the controls row (next to TUNE / DISP / CAT / SET). Modal sheet with a band picker (160 / 80 / 60 / 40 / 30 / 20 / 17 / 15 / 12 / 10 / 6 m), live progress bar, and Stop button.
+- Drives the Pi-side orchestrator (spe-remote `tune_band:<band>`) which in turn drives a Flex 6000-series rig over SmartSDR TCP: sets the slice freq, sends the SPE TUNE keycode, waits for the front-panel TUNE LED (`RCUFrame.isTuneActive`, byte 4 bit 6), keys the carrier, watches the LED for ATU completion, cuts the carrier, steps to the next sub-band.
+- Sweeps the SPE manual's recommended in-amateur-band sub-band centers (`spe-remote/spe/spe_band_table.py`). 20m is 7 cycles, 80m is 25 cycles, etc.
+- Stop button works mid-cycle — the carrier-off lives in a `finally` block on the Pi side, so an abort always drops TX before exiting.
+- Operator's pre-sweep VFO freq + mode are snapshotted and restored at the end (VFO_SAVED → ... → VFO_RESTORED phase events).
+- The plain **TUNE** button is unchanged — sends the SPE TUNE keycode directly with no Flex coordination, same as before. SWEEP is the orchestrated alternative.
+
 ### UI niceties
 - **Fixed-height LCDContainer** — every sub-menu, standby banner, info screen, and alert banner is sized to match the power+gauges block, so the controls row below never moves as you navigate.
 - **Developer panels** — RCU Capture + RCU Parser Debug are hidden by default; toggle them on via the ladybug button in the title bar for diagnosing parser / pipeline issues.
@@ -184,9 +192,11 @@ MacExpert/
 │   ├── RCUDisplayPacket.swift      # 0x6A frame locator (sync-to-sync)
 │   ├── RCUFrame.swift              # Full parser — screen detection, cursor,
 │   │                               # sub-menu fields, antenna matrix, info
-│   │                               # screens, config checkboxes, etc.
+│   │                               # screens, config checkboxes, isTuneActive
 │   ├── LCDText.swift               # Attribute-aware LCD text decoder
-│   └── GridCursorDecoder.swift     # Per-menu cursor decoders
+│   ├── GridCursorDecoder.swift     # Per-menu cursor decoders
+│   └── TuneEvent.swift             # Decodes tune_event JSON from the Pi-side
+│                                   # orchestrator (Phase 2c sweep panel)
 ├── Connection/
 │   ├── ConnectionProvider.swift    # Transport-agnostic protocol
 │   ├── SerialConnection.swift      # USB serial + RCU OFF/ON ticker
@@ -202,7 +212,9 @@ MacExpert/
 │   ├── PowerDisplayView.swift      # Power bar + readout + auto-scale ticks
 │   ├── GaugeView.swift             # Arc gauges
 │   ├── StatusChipsView.swift       # 7-chip row (STATUS/BAND/ANT/IN/LEVEL/MODE/CAT)
-│   ├── ControlsView.swift          # TUNE / DISP / CAT / SET + L± / C± / ◀▶
+│   ├── ControlsView.swift          # TUNE / DISP / CAT / SET / SWEEP + L± / C± / ◀▶
+│   ├── SweepPanelView.swift        # Phase 2c modal sheet — band picker, progress,
+│   │                               # Stop. Reads tune_event broadcasts from the Pi
 │   ├── LEDStatusView.swift         # SERIAL / POWER / OPER / TUNE / TX / ALARM / SET
 │   ├── SetupMenuView.swift         # SETUP 4×3 grid (root)
 │   └── SetupSubMenuViews.swift     # All sub-menu views + LCDContainer +
@@ -216,7 +228,7 @@ MacExpert/
 
 ## Known limitations / TODO
 
-- **Physical TUNE-button detection** — the SPE CSV protocol has no "tune in progress" bit. Warning `"W"` (TUNING WITH NO POWER) only fires on failed tunes, so it isn't a reliable signal. Currently the TUNE LED lights for 5 s on app-initiated tunes only.
+- **Resolved 2026-06-19** — physical TUNE-button detection now works. The TUNE LED in MacExpert tracks the amp's front-panel LED via `RCUFrame.isTuneActive` (byte 4 bit 6 of the RCU LCD frame; located via the labelled-diff capture tool at `tools/find_tune_bit.py`). Latency is one RCU tick (~0.5 s).
 - **CAT / DISP info screen structured parsing** — basic raw-text mirroring works; could extract structured fields per screen for richer UI.
 
 ## Credits
