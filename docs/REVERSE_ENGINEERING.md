@@ -47,6 +47,16 @@ Each menu encodes its data slightly differently. We built per-screen parsers in 
 
 For some menus (TUN ANT → PORT in particular) we couldn't deduce the cursor encoding from a single capture. We navigated the cursor through specific positions and noted the captured bytes. From two captures (cursor on 1200, cursor on 19200) we worked out that one column uses bytes 345-352 ascending and the other uses 353-362 ascending — bordering at byte 353 with disambiguation by which side has the set bit.
 
+### Hunting status flags (TUNE-in-progress, …) — labelled-diff method
+
+For a status flag we know exists in firmware (the front-panel TUNE LED, the alarm state, ATU bypass) but haven't yet located in the RCU payload, `tools/find_tune_bit.py` automates the hunt. The workflow:
+
+1. Capture short runs with distinct labels — e.g. `tune_idle` (20 frames OPER+RX, no tune), `tune_running` (20 frames during a real tune cycle), `tune_done` (20 frames post-tune).
+2. Run `python3 tools/find_tune_bit.py ~/Documents/MacExpert-captures/*.log`. The script ranks every byte offset by how reliably its mode value separates `tune_running` from `tune_idle` *and* `tune_done`, with a hard preference for single-bit flips (the typical shape of a flag register written by firmware).
+3. The top-strength entry (≥ 0.9, single bit) gets flagged `** tune-flag candidate`. Cross-check it against the known offset map in this doc, then plumb it into `RCUFrame` as a new accessor (e.g. `isTuneInProgress`).
+
+The same machinery generalises — `--running` / `--idle` flags let you hunt for any binary state (alarm vs no-alarm, ATU bypass vs ATU active) by relabelling the captures.
+
 ## Bridging Frames to UI
 
 `RCUFrame.parse(_ data: Data)` produces a single immutable struct from one 367-byte payload. The **screen classifier** is a header-substring matcher that distinguishes the ~20 different screens (SETUP root, CAT menu, CONFIG, antenna matrix, all 14 sub-menus, info screens, OPERATE/STANDBY, etc.). It runs before the body-text classifier so longer titles win over the broad STANDBY markers.
