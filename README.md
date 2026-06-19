@@ -45,6 +45,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 - Sweeps the SPE manual's recommended in-amateur-band sub-band centers (`spe-remote/spe/spe_band_table.py`). 20m is 7 cycles, 80m is 25 cycles, etc.
 - Stop button works mid-cycle — the carrier-off lives in a `finally` block on the Pi side, so an abort always drops TX before exiting.
 - Operator's pre-sweep VFO freq + mode are snapshotted and restored at the end (VFO_SAVED → ... → VFO_RESTORED phase events).
+- **On-demand Flex connection.** spe-remote no longer holds the SmartSDR session open for its whole lifetime — it connects the radio when a Sweep panel opens and disconnects when the cycle is over. MacExpert sends `flex_connect` as the Sweep sheet appears (pre-warming the radio so the first tune is instant) and `flex_disconnect` when it closes while idle. Connection transitions arrive as `FLEX_CONNECTING` / `FLEX_CONNECTED` / `FLEX_DISCONNECTED` / `FLEX_ERROR` `tune_event` phases; a `FLEX_ERROR` (e.g. radio powered off) surfaces in the app's error banner. No action is required if you skip this — the Pi also connects lazily at tune start.
 - The plain **TUNE** button is unchanged — sends the SPE TUNE keycode directly with no Flex coordination, same as before. SWEEP is the orchestrated alternative.
 
 ### UI niceties
