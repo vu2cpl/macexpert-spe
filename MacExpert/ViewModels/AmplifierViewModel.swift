@@ -24,6 +24,25 @@ final class AmplifierViewModel {
     var errorMessage: String = ""
     var antennaMap = AntennaMap()
 
+    // MARK: - Sweep state (Phase 2c)
+    //
+    // Latest tune_event broadcast from the Pi's TuneOrchestrator —
+    // drives the Sweep panel's progress UI. Cleared back to nil only
+    // when the sheet is dismissed; clients that want to know "is a
+    // sweep currently running" should check `isSweeping` instead,
+    // which latches off on terminal phases (SUCCESS / FAIL / ABORT /
+    // SWEEP_DONE).
+    var lastTuneEvent: TuneEvent?
+    /// True while a tune cycle or band sweep is actively running on the
+    /// Pi. Goes true on STARTED / SWEEP_STARTED, false on any terminal
+    /// phase. Used to enable / disable the Stop button and grey out the
+    /// Start button while a cycle is in flight.
+    var isSweeping: Bool = false
+    /// (current, total) sub-band counter parsed from SWEEP_STEP phases.
+    /// Used by the progress bar. Nil before the first SWEEP_STEP and
+    /// after the terminal phase.
+    var sweepProgress: (current: Int, total: Int)?
+
     // RCU capture pipeline (labeled 0x6A LCD packet logger).
     // `var` (not `let`) so SwiftUI's @Bindable projection can drill into its
     // observable properties (e.g. $vm.captureLogger.currentLabel).
@@ -422,6 +441,9 @@ final class AmplifierViewModel {
                     }
                     ws.onHeartbeat = { [weak self] hb in
                         self?.handleHeartbeat(hb)
+                    }
+                    ws.onTuneEvent = { [weak self] event in
+                        self?.handleTuneEvent(event)
                     }
                     connection = ws
                     try await ws.connect()
@@ -1092,6 +1114,57 @@ final class AmplifierViewModel {
             }
             startAmpWatchdogIfNeeded()
         }
+    }
+
+    // MARK: - Tune-event handling + sweep actions (Phase 2c)
+
+    /// Consume a tune-orchestrator phase transition broadcast by the Pi.
+    /// Updates the published sweep state so the Sweep panel re-renders.
+    func handleTuneEvent(_ event: TuneEvent) {
+        lastTuneEvent = event
+        if event.isSweepStart || event.phase == "STARTED" {
+            isSweeping = true
+            sweepProgress = nil
+        }
+        if let progress = event.sweepProgress {
+            sweepProgress = progress
+        }
+        if event.isTerminal {
+            isSweeping = false
+            // Leave sweepProgress so the UI can show "7/7 done" until
+            // the operator dismisses the sheet.
+        }
+    }
+
+    /// Kick off a band sweep on the Pi. Sends `tune_band:<band>` over
+    /// WS. Only valid in WS mode — no-op (with a status message) in
+    /// serial mode or while disconnected. Failure to send surfaces via
+    /// the next `tune_event` or via `errorMessage`.
+    func startSweep(band: String) {
+        guard let ws = connection as? WebSocketConnection else {
+            errorMessage = "Sweep requires WebSocket connection to spe-remote"
+            return
+        }
+        guard ws.isConnected else {
+            errorMessage = "Not connected — start the WS connection first"
+            return
+        }
+        // Optimistic: flip the flag immediately so the Start button
+        // disables without waiting for the Pi's round-trip. The next
+        // tune_event will confirm (SWEEP_STARTED) or correct (FAIL).
+        isSweeping = true
+        sweepProgress = nil
+        lastTuneEvent = nil
+        ws.sendRawCommand("tune_band:\(band)")
+    }
+
+    /// Abort the running sweep / cycle. The Pi's `_stop_requested`
+    /// event triggers in its next poll, and the orchestrator's
+    /// finally block guarantees the carrier is cut before returning.
+    func stopSweep() {
+        guard let ws = connection as? WebSocketConnection else { return }
+        guard ws.isConnected else { return }
+        ws.sendRawCommand("tune_stop")
     }
 
     /// 1 Hz watchdog that flips `isAmpResponding` to false when no

@@ -4,6 +4,7 @@ struct ControlsView: View {
     @Environment(AmplifierViewModel.self) private var vm
     @State private var showPowerOffConfirm = false
     @State private var showPowerOnConfirm = false
+    @State private var showSweepPanel = false
 
     var body: some View {
         VStack(spacing: 4) {
@@ -27,6 +28,14 @@ struct ControlsView: View {
                 PanelButton("SET", icon: "gearshape",
                             accent: vm.isInSetupMode ? .green : nil) {
                     vm.sendCommand(.set)
+                }
+                // SWEEP — opens the band-sweep modal (Phase 2c). The
+                // existing TUNE button above stays as a plain keycode
+                // send; SWEEP is the orchestrated alternative that
+                // drives the Flex carrier + watches the RCU TUNE bit.
+                PanelButton("SWEEP", icon: "arrow.left.and.right.righttriangle.left.righttriangle.right",
+                            accent: vm.isSweeping ? .green : nil) {
+                    showSweepPanel = true
                 }
             }
 
@@ -91,6 +100,9 @@ struct ControlsView: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(white: 0.13)))
+        .sheet(isPresented: $showSweepPanel) {
+            SweepPanelView()
+        }
     }
 }
 

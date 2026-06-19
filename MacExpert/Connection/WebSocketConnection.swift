@@ -40,6 +40,12 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
     /// `heartbeat.ampAlive` to drive the amp-off banner directly instead
     /// of waiting on the silence watchdog.
     var onHeartbeat: ((PresenceHeartbeat) -> Void)?
+    /// Fired on every tune-orchestrator phase transition from the Pi —
+    /// SWEEP_STARTED / SWEEP_STEP / LED_ON / … / SWEEP_DONE / FAIL / ABORT.
+    /// Used by the Sweep panel to drive its progress display and Stop
+    /// button state. The Pi broadcasts these as JSON keyed on
+    /// `tune_event`; see Models/TuneEvent.swift for the shape.
+    var onTuneEvent: ((TuneEvent) -> Void)?
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
@@ -165,6 +171,16 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
             if let hb = try? decoder.decode(PresenceHeartbeat.self, from: data),
                hb.heartbeat {
                 await MainActor.run { onHeartbeat?(hb) }
+                return
+            }
+            // tune_event must come BEFORE state — TuneEvent.phase has its
+            // own coding key `tune_event`, so a successful TuneEvent
+            // decode signals a phase transition (not a partial state).
+            // State decode would otherwise accept the same JSON with
+            // most fields defaulted, which is exactly the regression
+            // d3be36f closed for power_result messages.
+            if let ev = try? decoder.decode(TuneEvent.self, from: data) {
+                await MainActor.run { onTuneEvent?(ev) }
                 return
             }
             if let state = try? decoder.decode(AmplifierState.self, from: data) {
