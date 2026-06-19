@@ -12,26 +12,30 @@ LCD frame instead, so MacExpert today falls back to a blind 5 s timer
 LED has to read from *some* firmware flag, and that flag almost
 certainly lives in the LCD payload too — we just haven't identified it.
 
-Capture recipe (do this at the rig)
------------------------------------
-1. Open MacExpert, switch to the CaptureLogger pane.
-2. With the amp in **OPER+RX, no tune**, set the label to ``tune_idle``
-   and capture ~20 frames (~5 seconds of RCU stream at the 1.5 s tick).
-3. Set the label to ``tune_running``. **Press TUNE on the front panel
-   while transmitting** so a real tune cycle starts. Capture frames for
-   the whole cycle (~3–4 seconds). Stop immediately when the tune cycle
-   ends.
-4. Set the label to ``tune_done`` and capture ~20 more frames of the
-   post-tune steady state.
+Capture recipe (simple — no PTT, no rig, ~30 seconds at the amp)
+----------------------------------------------------------------
+The SPE refuses to enter TUNE mode while PTT is on, so a TUNE press
+in STANDBY with no carrier lights the front-panel TUNE LED for ~5 s
+("amp waiting for carrier") before the amp gives up and warns
+"TUNING WITH NO POWER". That ~5 s window has the LCD still on the
+standby logo (no screen change) and the TUNE-pending firmware flag
+set — exactly the comparison we want.
 
-If you can't sit at the front panel during the cycle, repeat the same
-sequence using whatever TUNE control you have wired (MacExpert TUNE
-button or the rig's own ATU button) — the bit only cares about amp
-state, not who triggered it.
+1. Open MacExpert → Capture pane. Amp in **STBY**, idle.
+2. Label ``led_off``, capture ~15 s of the standby logo screen
+   (~10 frames at the 1.5 s RCU tick).
+3. **Press TUNE on the amp's front panel.** Front-panel TUNE LED
+   comes on. LCD stays on the standby logo (no carrier yet).
+4. Label ``led_on``, capture every frame you can during the 5 s
+   window before the amp warns "TUNING WITH NO POWER" — usually
+   3–5 frames is plenty.
+5. Stop capture. Press TUNE again or wait for the warning so the
+   amp drops back to plain STBY.
 
 Then run:
 
-    python3 find_tune_bit.py ~/Documents/MacExpert-captures/*.log
+    python3 find_tune_bit.py "$(ls -t ~/Documents/MacExpert-captures/capture-*[0-9].log | head -1)" \
+        --running led_on --idle led_off
 
 The script prints the byte offsets that *most reliably* distinguish
 ``tune_running`` from the other labels, sorted by discriminator
@@ -57,13 +61,12 @@ For each candidate byte offset we print:
 
 Optional flags
 --------------
-    --running LABEL    name of the "tune in progress" label
-                       (default: tune_running)
-    --idle LABEL       name of the comparison "no tune" label.
+    --running LABEL    name of the "TUNE LED on" label
+                       (default: led_on)
+    --idle LABEL       name of the comparison "TUNE LED off" label.
                        Can be repeated to demand the candidate
-                       discriminate from MULTIPLE idle labels
-                       (e.g. --idle tune_idle --idle tune_done).
-                       Default: tune_idle, tune_done.
+                       discriminate from MULTIPLE idle labels.
+                       Default: led_off.
     --top N            show top N candidates (default 20)
     --bit-only         restrict to single-bit-flip candidates
                        (highest-confidence flag bits)
@@ -144,11 +147,11 @@ def main() -> int:
     )
     ap.add_argument("logs", nargs="+",
                     help="Capture log file(s); globs OK.")
-    ap.add_argument("--running", default="tune_running",
-                    help="Label for 'tune cycle in progress' captures.")
+    ap.add_argument("--running", default="led_on",
+                    help="Label for 'TUNE LED on' captures.")
     ap.add_argument("--idle", action="append", default=None,
-                    help="Label for 'no tune' captures. Repeat for multi-label "
-                         "(default: tune_idle and tune_done).")
+                    help="Label for 'TUNE LED off' captures. Repeat for "
+                         "multi-label (default: led_off).")
     ap.add_argument("--top", type=int, default=20,
                     help="Number of top candidates to print.")
     ap.add_argument("--bit-only", action="store_true",
@@ -157,7 +160,7 @@ def main() -> int:
                     help="Restrict scan to byte offsets A:B (e.g. 0:32).")
     args = ap.parse_args()
 
-    idle_labels = args.idle or ["tune_idle", "tune_done"]
+    idle_labels = args.idle or ["led_off"]
     by_label = load(args.logs)
 
     if args.running not in by_label:

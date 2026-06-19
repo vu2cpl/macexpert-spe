@@ -49,13 +49,14 @@ For some menus (TUN ANT → PORT in particular) we couldn't deduce the cursor en
 
 ### Hunting status flags (TUNE-in-progress, …) — labelled-diff method
 
-For a status flag we know exists in firmware (the front-panel TUNE LED, the alarm state, ATU bypass) but haven't yet located in the RCU payload, `tools/find_tune_bit.py` automates the hunt. The workflow:
+For a status flag we know exists in firmware (front-panel TUNE LED, alarm state, ATU bypass) but haven't yet located in the RCU payload, `tools/find_tune_bit.py` automates the hunt. The trick is to make the **only difference between the two captures** be the flag itself — same LCD screen, same amp mode, just the bit toggling. For the TUNE LED this is easy because the SPE refuses to enter TUNE while PTT is on, so you can press TUNE in STBY *without keying the rig*: the LED lights for ~5 s before the amp warns "TUNING WITH NO POWER", and during that window the LCD is still on the standby logo — identical to the no-TUNE baseline except for the flag bit.
 
-1. Capture short runs with distinct labels — e.g. `tune_idle` (20 frames OPER+RX, no tune), `tune_running` (20 frames during a real tune cycle), `tune_done` (20 frames post-tune).
-2. Run `python3 tools/find_tune_bit.py ~/Documents/MacExpert-captures/*.log`. The script ranks every byte offset by how reliably its mode value separates `tune_running` from `tune_idle` *and* `tune_done`, with a hard preference for single-bit flips (the typical shape of a flag register written by firmware).
-3. The top-strength entry (≥ 0.9, single bit) gets flagged `** tune-flag candidate`. Cross-check it against the known offset map in this doc, then plumb it into `RCUFrame` as a new accessor (e.g. `isTuneInProgress`).
+1. Open MacExpert → Capture. Amp in STBY, idle. Capture ~15 s under label `led_off`.
+2. Press TUNE on the amp's front panel. Quickly switch label to `led_on` and capture every frame you can during the ~5 s LED window.
+3. Run `python3 tools/find_tune_bit.py "$(ls -t ~/Documents/MacExpert-captures/capture-*[0-9].log | head -1)" --running led_on --idle led_off`. The script ranks every byte offset by mode-stability and discrimination strength, with a hard preference for single-bit flips (the typical shape of a flag register written by firmware).
+4. The top-strength entry (≥ 0.9, single bit) gets flagged `** tune-flag candidate`. Cross-check it against the known offset map in this doc, then plumb it into `RCUFrame` as a new accessor (e.g. `isTuneInProgress`).
 
-The same machinery generalises — `--running` / `--idle` flags let you hunt for any binary state (alarm vs no-alarm, ATU bypass vs ATU active) by relabelling the captures.
+The same machinery generalises — relabel captures and use `--running` / `--idle` to hunt any binary state (alarm vs no-alarm, ATU bypass vs ATU active). The key invariant is *same LCD screen in both labels*; otherwise the script just rediscovers the screen-classifier bytes instead of the flag.
 
 ## Bridging Frames to UI
 
