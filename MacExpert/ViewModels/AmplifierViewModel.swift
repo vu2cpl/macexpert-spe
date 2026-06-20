@@ -1121,6 +1121,22 @@ final class AmplifierViewModel {
     /// Consume a tune-orchestrator phase transition broadcast by the Pi.
     /// Updates the published sweep state so the Sweep panel re-renders.
     func handleTuneEvent(_ event: TuneEvent) {
+        // Flex connection-lifecycle events (FLEX_CONNECTING / CONNECTED /
+        // DISCONNECTED / ERROR) ride the same channel now that the Pi
+        // connects the radio on demand. They are not tune progress — keep
+        // them out of the sweep status so they don't clobber a finished
+        // sweep result or spin the status icon while idle. Surface only a
+        // connection *error* (e.g. radio off when the panel opens) via the
+        // standard error banner.
+        if event.isFlexLifecycle {
+            if event.phase == "FLEX_ERROR" {
+                errorMessage = event.message.isEmpty
+                    ? "Flex radio connection failed"
+                    : event.message
+            }
+            return
+        }
+
         lastTuneEvent = event
         if event.isSweepStart || event.phase == "STARTED" {
             isSweeping = true
@@ -1165,6 +1181,26 @@ final class AmplifierViewModel {
         guard let ws = connection as? WebSocketConnection else { return }
         guard ws.isConnected else { return }
         ws.sendRawCommand("tune_stop")
+    }
+
+    /// Ask the Pi to open its Flex connection. Sent when the Sweep panel
+    /// appears so the radio is ready by the time the operator hits Start.
+    /// spe-remote opens the SmartSDR session on demand now (and closes it
+    /// when the cycle is over), so this is a head-start, not a hard
+    /// requirement — the Pi also connects lazily at tune start. WS-only;
+    /// a silent no-op in serial mode / while disconnected.
+    func flexConnect() {
+        guard let ws = connection as? WebSocketConnection, ws.isConnected else { return }
+        ws.sendRawCommand("flex_connect")
+    }
+
+    /// Ask the Pi to drop its Flex connection — sent when the Sweep panel
+    /// closes while idle. Never fires mid-sweep (the Pi would ignore it
+    /// anyway: the orchestrator owns the connection until the cycle ends).
+    func flexDisconnect() {
+        guard !isSweeping,
+              let ws = connection as? WebSocketConnection, ws.isConnected else { return }
+        ws.sendRawCommand("flex_disconnect")
     }
 
     /// 1 Hz watchdog that flips `isAmpResponding` to false when no
