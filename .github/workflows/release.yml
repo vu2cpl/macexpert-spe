@@ -2,15 +2,18 @@ name: Release
 
 # Produces a GitHub Release with the macOS app (.zip) and the Amateur Radio Suite plugin
 # (.radioplugin). Triggered three ways:
-#   1. PR merged into main  -> auto-bump the latest vX.Y.Z tag (patch) and release.
+#   1. Push to main         -> auto-bump the latest vX.Y.Z tag (patch) and release. Fires
+#                              on every merge to main (PR-merge or direct push). Listening
+#                              on `push: branches: [main]` instead of `pull_request: closed`
+#                              avoids GitHub's fork-PR token restriction, which makes the
+#                              GITHUB_TOKEN read-only on `closed` events for PRs from forks
+#                              and fails the `gh release create` step with HTTP 403.
 #   2. Push a vX.Y.Z tag    -> release that tag.
 #   3. workflow_dispatch     -> release the given version (tag created on main if absent).
 
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
   push:
+    branches: [main]
     tags: [ 'v*' ]
   workflow_dispatch:
     inputs:
@@ -26,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Skip the release when a merged PR / pushed change only touches documentation
+  # Skip the release when a pushed change only touches documentation
   # (*.md, docs/**, LICENSE). Tag pushes and manual dispatch always release.
   gate:
     name: Decide whether to release (skip docs-only)
@@ -50,8 +53,6 @@ jobs:
               refs/tags/*) echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
             esac
             files="$(gh api --paginate "repos/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.event.after }}" -q '.files[].filename' || true)"
-          elif [ "$ev" = "pull_request" ]; then
-            files="$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" -q '.[].filename' || true)"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
@@ -72,9 +73,8 @@ jobs:
   release:
     needs: gate
     name: Build & publish release
-    # Only on a real merge (or tag/dispatch) — a closed-but-unmerged PR must not release.
-    # Also skip when the change only touched docs (see the gate job).
-    if: (github.event_name != 'pull_request' || github.event.pull_request.merged == true) && needs.gate.outputs.skip != 'true'
+    # Skip when the change only touched docs (see the gate job).
+    if: needs.gate.outputs.skip != 'true'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
@@ -92,9 +92,10 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             V="${{ inputs.version }}"
-          elif [ "${{ github.event_name }}" = "push" ]; then
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
             V="${GITHUB_REF_NAME#v}"
           else
+            # Push to main: auto-bump the latest vX.Y.Z tag's patch component.
             git fetch --tags --force --quiet
             LATEST="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
             if [ -z "$LATEST" ]; then
