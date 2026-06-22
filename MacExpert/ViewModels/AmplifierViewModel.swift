@@ -42,6 +42,10 @@ final class AmplifierViewModel {
     /// Used by the progress bar. Nil before the first SWEEP_STEP and
     /// after the terminal phase.
     var sweepProgress: (current: Int, total: Int)?
+    /// Banner text shown for the last Flex connection error (FLEX_ERROR).
+    /// Remembered so a subsequent FLEX_CONNECTED can clear exactly that
+    /// banner without stomping an unrelated error that's on screen.
+    private var flexErrorBanner: String?
 
     // RCU capture pipeline (labeled 0x6A LCD packet logger).
     // `var` (not `let`) so SwiftUI's @Bindable projection can drill into its
@@ -1129,11 +1133,27 @@ final class AmplifierViewModel {
         // connection *error* (e.g. radio off when the panel opens) via the
         // standard error banner.
         if event.isFlexLifecycle {
-            if event.phase == "FLEX_ERROR" {
-                errorMessage = event.message.isEmpty
+            switch event.phase {
+            case "FLEX_ERROR":
+                let banner = event.message.isEmpty
                     ? "Flex radio connection failed"
                     : event.message
+                errorMessage = banner
+                flexErrorBanner = banner
+            case "FLEX_CONNECTED":
+                // Radio is back — clear the stale connection-error banner,
+                // but only if it's still our FLEX_ERROR text on screen so we
+                // don't stomp an unrelated error the operator needs to see.
+                if let banner = flexErrorBanner, errorMessage == banner {
+                    errorMessage = ""
+                }
+                flexErrorBanner = nil
+            default:
+                break
             }
+            // FLEX_* phases are connection housekeeping, not tune progress —
+            // short-circuit before `lastTuneEvent = event` so they never feed
+            // the sweep state machine below.
             return
         }
 
@@ -1190,7 +1210,11 @@ final class AmplifierViewModel {
     /// requirement — the Pi also connects lazily at tune start. WS-only;
     /// a silent no-op in serial mode / while disconnected.
     func flexConnect() {
-        guard let ws = connection as? WebSocketConnection, ws.isConnected else { return }
+        // Mirror flexDisconnect's `!isSweeping` guard for symmetry: the
+        // Sweep sheet shouldn't be opening mid-cycle, but don't poke the
+        // connection lifecycle if a sweep is already in flight.
+        guard !isSweeping,
+              let ws = connection as? WebSocketConnection, ws.isConnected else { return }
         ws.sendRawCommand("flex_connect")
     }
 
