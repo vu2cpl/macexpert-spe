@@ -1127,19 +1127,25 @@ final class AmplifierViewModel {
     func handleTuneEvent(_ event: TuneEvent) {
         // Flex connection-lifecycle events (FLEX_CONNECTING / CONNECTED /
         // DISCONNECTED / ERROR) ride the same channel now that the Pi
-        // connects the radio on demand. They are not tune progress — keep
-        // them out of the sweep status so they don't clobber a finished
-        // sweep result or spin the status icon while idle. Surface only a
-        // connection *error* (e.g. radio off when the panel opens) via the
-        // standard error banner.
+        // connects the radio on demand. They are not tune *progress*, so
+        // they short-circuit before the sweep state machine below — but
+        // the Sweep sheet's status block reads `lastTuneEvent`, so we feed
+        // the connecting/error phases into it (otherwise the operator sees
+        // a misleading "Ready" while a connect fails behind the sheet, and
+        // the verbose error only lands in `errorMessage`, which surfaces in
+        // ConnectionView hidden behind the sheet). FLEX_CONNECTED resets
+        // the headline back to idle; FLEX_DISCONNECTED stays inert.
         if event.isFlexLifecycle {
             switch event.phase {
+            case "FLEX_CONNECTING":
+                lastTuneEvent = event
             case "FLEX_ERROR":
                 let banner = event.message.isEmpty
                     ? "Flex radio connection failed"
                     : event.message
                 errorMessage = banner
                 flexErrorBanner = banner
+                lastTuneEvent = event
             case "FLEX_CONNECTED":
                 // Radio is back — clear the stale connection-error banner,
                 // but only if it's still our FLEX_ERROR text on screen so we
@@ -1148,12 +1154,17 @@ final class AmplifierViewModel {
                     errorMessage = ""
                 }
                 flexErrorBanner = nil
+                // Drop the connecting/error headline so the sheet shows
+                // "Ready" on recovery instead of a stale red banner.
+                lastTuneEvent = nil
+                sweepProgress = nil
+            case "FLEX_DISCONNECTED":
+                // Inert: can arrive as the Pi's post-cycle drop after a
+                // successful sweep — must not clobber a SWEEP_DONE headline.
+                break
             default:
                 break
             }
-            // FLEX_* phases are connection housekeeping, not tune progress —
-            // short-circuit before `lastTuneEvent = event` so they never feed
-            // the sweep state machine below.
             return
         }
 
