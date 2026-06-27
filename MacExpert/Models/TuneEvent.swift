@@ -32,6 +32,14 @@ struct TuneEvent: Decodable, Equatable {
     var isFailure:  Bool { phase == "FAIL" || phase == "ABORT" }
     var isSweepStart: Bool { phase == "SWEEP_STARTED" }
 
+    /// Flex connection-lifecycle phases (`FLEX_CONNECTING`,
+    /// `FLEX_CONNECTED`, `FLEX_DISCONNECTED`, `FLEX_ERROR`). spe-remote
+    /// now opens the SmartSDR session on demand — when the Sweep panel
+    /// opens — and closes it when the cycle is over, broadcasting these
+    /// on the same channel. They are not part of a tune cycle's progress,
+    /// so the panel treats them separately from the tune phases above.
+    var isFlexLifecycle: Bool { phase.hasPrefix("FLEX_") }
+
     /// SWEEP_STEP messages look like `"3/7: 14.1250 MHz"`. Extract the
     /// (current, total) integers for a progress bar; returns nil if the
     /// message doesn't match the format.

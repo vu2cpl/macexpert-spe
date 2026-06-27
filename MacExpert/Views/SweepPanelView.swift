@@ -35,6 +35,12 @@ struct SweepPanelView: View {
         }
         .padding(20)
         .frame(minWidth: 420, idealWidth: 460, minHeight: 320)
+        // On-demand Flex lifecycle: opening this panel pre-warms the Pi's
+        // SmartSDR connection; closing it (while idle) drops it again. The
+        // Pi also connects lazily at tune start and disconnects when the
+        // cycle is over, so this is purely a head-start.
+        .onAppear { vm.flexConnect() }
+        .onDisappear { vm.flexDisconnect() }
     }
 
     // MARK: - Sub-views
@@ -142,6 +148,9 @@ struct SweepPanelView: View {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case "FAIL":
             Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+        case "FLEX_ERROR":
+            // Distinct from a tune FAIL — a connection problem, not a bad SWR.
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
         case "ABORT":
             Image(systemName: "stop.circle.fill").foregroundStyle(.orange)
         case "":
@@ -157,11 +166,13 @@ struct SweepPanelView: View {
             return vm.isSweeping ? "Starting…" : "Ready"
         }
         switch event.phase {
-        case "SWEEP_DONE": return "Done"
-        case "SUCCESS":    return "Cycle complete"
-        case "FAIL":       return "Failed"
-        case "ABORT":      return "Stopped"
-        default:           return event.phase.replacingOccurrences(of: "_", with: " ")
+        case "SWEEP_DONE":     return "Done"
+        case "SUCCESS":        return "Cycle complete"
+        case "FAIL":           return "Failed"
+        case "ABORT":          return "Stopped"
+        case "FLEX_CONNECTING": return "Connecting to Flex…"
+        case "FLEX_ERROR":      return "Flex radio not reachable"
+        default:               return event.phase.replacingOccurrences(of: "_", with: " ")
         }
     }
 
