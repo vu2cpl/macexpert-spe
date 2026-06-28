@@ -101,11 +101,13 @@ It quits any running MacExpert first, `rsync --delete`s the bundle into `/Applic
 
 ### Cut a release (`release.sh`)
 
+Releases are cut locally — there is no GitHub Actions release workflow. `release.sh` builds the universal `.app` *with* the ExtensionKit plugin embedded, signs both inside-out with Developer ID + hardened runtime + secure timestamp, optionally notarizes and staples the `.app` and `.dmg`, and packages the `.radioplugin` (zip of `plugin.json` + the signed extension).
+
 ```bash
-./release.sh                                  # build + sign + zip → dist/
+./release.sh                                  # build + sign → dist/{zip,dmg,radioplugin}
 ./release.sh --notarize                       # also Apple-notarize + staple
 ./release.sh --tag v2.1.0                     # also tag the current commit
-./release.sh --tag v2.1.0 --push              # tag, push, GitHub release + upload
+./release.sh --tag v2.1.0 --push              # tag, push, GitHub release + upload all artifacts
 ./release.sh --tag v2.1.0 --push --notarize   # full release flow
 ```
 

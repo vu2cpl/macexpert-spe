@@ -93,10 +93,11 @@ PLIST
 # keychain. Hardened runtime is enabled so the app meets Gatekeeper / notarization
 # requirements. If no identity is present, fall back to ad-hoc signing.
 #
-# package-signed.sh sets SKIP_SIGN=1: it embeds the ExtensionKit .appex and then signs the
-# whole bundle inside-out (with entitlements) + notarizes, so signing here would be redundant
-# and would only double-expose the build to Apple's flaky timestamp service. The standalone
-# release.sh path leaves SKIP_SIGN unset, so it still gets a signed app from this script.
+# release.sh sets SKIP_SIGN=1: it embeds the ExtensionKit .appex and then signs the whole
+# bundle inside-out (with entitlements) + notarizes, so signing here would be redundant and
+# would only double-expose the build to Apple's flaky timestamp service. Direct invocations
+# (./build-app.sh from the command line, install.sh, etc.) leave SKIP_SIGN unset and get a
+# signed standalone app from this step.
 if [ "${SKIP_SIGN:-0}" != "1" ]; then
     if [ -z "${SIGN_IDENTITY:-}" ]; then
         SIGN_IDENTITY="$(security find-identity -p codesigning -v 2>/dev/null \
