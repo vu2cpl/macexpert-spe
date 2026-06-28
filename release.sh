@@ -69,12 +69,12 @@ IDENTITY="$(security find-identity -v -p codesigning | \
 [ -n "$IDENTITY" ] || { echo "ERROR: no Developer ID Application identity in keychain" >&2; exit 1; }
 echo "Identity: $IDENTITY"
 
-# 1. Build the .app (SKIP_SIGN — we sign inside-out below so the
-# embedded extension + the .app are sealed under the same hardened-
-# runtime envelope).
-SKIP_SIGN=1 "$SCRIPT_DIR/build-app.sh"
-
-# 2. Derive a version string from the tag (if given) or short SHA + dirty.
+# 1. Derive the version string from the tag (if given) or short SHA +
+# dirty. Must happen BEFORE build-app.sh so the value gets baked into
+# the bundle's Info.plist (build-app.sh reads VERSION from env and
+# defaults to 0.0.0-dev; the old release.sh derived VERSION after
+# build-app.sh ran, so every release v2.0.5..v2.0.9 has 0.0.0-dev in
+# CFBundleShortVersionString even though the filename has the tag).
 if [ -n "$TAG" ]; then
     VERSION="${TAG#v}"
 else
@@ -84,6 +84,12 @@ else
     if ! git diff --quiet 2>/dev/null; then DIRTY="-dirty"; fi
     VERSION="dev-$SHA$DIRTY"
 fi
+export VERSION
+
+# 2. Build the .app (SKIP_SIGN — we sign inside-out below so the
+# embedded extension + the .app are sealed under the same hardened-
+# runtime envelope).
+SKIP_SIGN=1 "$SCRIPT_DIR/build-app.sh"
 
 # 3. Build and embed the ExtensionKit extension.
 echo "==> Building $APPEX_NAME"
