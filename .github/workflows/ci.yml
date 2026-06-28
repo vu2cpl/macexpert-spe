@@ -49,4 +49,3 @@ jobs:
           xcodebuild -project Xcode/MacExpertPlugin.xcodeproj -scheme MacExpertExtension \
             -configuration Release -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO build
-          ls -lh dist/MacExpert.radioplugin
