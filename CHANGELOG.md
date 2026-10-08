@@ -3,11 +3,14 @@
 All notable changes to **MacExpert** — a native macOS controller for SPE Expert amplifiers
 (serial / WebSocket RCU) that also ships as an
 [Amateur Radio Suite](https://github.com/VU3ESV/AmateurRadioSuite) plugin. Format follows
-[Keep a Changelog](https://keepachangelog.com/); a release is cut on every merge to `main`
-(tags `vX.Y.Z`).
+[Keep a Changelog](https://keepachangelog.com/). Releases are cut locally with `release.sh`
+(tags `vX.Y.Z`); a push to `main` only runs CI — the automatic release on every merge was
+removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
+[GitHub releases](https://github.com/vu2cpl/macexpert-spe/releases).
 
 ## [Unreleased]
 
+## [2.0.10] — 2026-10-09
 ### Added
 - **Update check against GitHub releases** (standalone app only — the Suite plugin excludes
   it): about 10 s after launch, at most once a day, one anonymous `GET` of
@@ -22,10 +25,20 @@ All notable changes to **MacExpert** — a native macOS controller for SPE Exper
   while running; an hourly timer repeats the daily check for as long as the app runs (never
   while one of its dialogs is open); and a development build (version containing "dev", e.g.
   `build-app.sh`'s `0.0.0-dev`) never checks on its own — Check for Updates… still works.
+
+### Changed
+- **Releases are cut locally** with `release.sh` (build, embed + sign the ExtensionKit plugin,
+  notarize + staple the `.app` and `.dmg`, package the `.radioplugin`, `SHA256SUMS`); the CI
+  auto-release workflow was deleted 2026-06-28, so a push to `main` only runs CI (build + test
+  + extension smoke build). `release.sh` now stamps the tag's version into `Info.plist` (it
+  used to run after `build-app.sh`, which left `0.0.0-dev` in some 2.0.x bundles) and zips the
+  app with `ditto --norsrc`, so the `.zip` carries no AppleDouble `._*` entries.
+
+## [2.0.3] — 2026-06-03
+### Added
 - **CI + Release pipelines** (previously none): CI builds + tests the app and the plugin
-  `.appex` on every PR; a GitHub Release is cut on **every merge to `main`** (auto patch-bump
-  of the latest `vX.Y.Z` tag) with the universal app `.zip` and the `.radioplugin`. Tag-push
-  and manual dispatch also work.
+  `.appex` on every PR and push to `main`. *(At the time a GitHub Release was also cut
+  automatically on every merge to `main`; that was removed 2026-06-28 — see 2.0.10.)*
 - **Out-of-process plugin** ([CONVERTING-A-PLUGIN.md](https://github.com/VU3ESV/AmateurRadioSuite/blob/main/docs/CONVERTING-A-PLUGIN.md)):
   an ExtensionKit `.appex` (`Xcode/`) + `scripts/make-radioplugin.sh` packaging
   `MacExpert.radioplugin`, so the suite can browse/install MacExpert and host it sandboxed via

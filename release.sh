@@ -130,9 +130,11 @@ PLUGIN="$DIST/MacExpert-${VERSION}.radioplugin"
 rm -f "$ZIP" "$DMG" "$PLUGIN"
 
 echo "==> Zipping app"
-# ditto preserves resource forks, signature metadata, and HFS xattrs —
-# `zip -r` doesn't.
-ditto -c -k --keepParent --sequesterRsrc "$APP" "$ZIP"
+# ditto keeps the bundle's symlinks and signature intact — `zip -r`
+# doesn't. --norsrc keeps AppleDouble `._*` entries out of the zip
+# (v2.0.9's --sequesterRsrc zip carried 31 of them); a non-Apple
+# unzipper can write those into the bundle and break its seal.
+ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
 ARCHS="$(lipo -archs "$APP/Contents/MacOS/MacExpert")"
 echo "Built $ZIP ($(du -h "$ZIP" | cut -f1), $ARCHS)"
 
@@ -160,7 +162,7 @@ if [ "$DO_NOTARIZE" = "1" ]; then
     # Re-zip so the published .zip carries the stapled ticket.
     echo "==> Re-zipping stapled .app"
     rm -f "$ZIP"
-    ditto -c -k --keepParent --sequesterRsrc "$APP" "$ZIP"
+    ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
 fi
 
 # 7. Build the DMG. Sign it; with --notarize, also notarize + staple
