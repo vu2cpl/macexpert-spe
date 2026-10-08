@@ -16,7 +16,12 @@ All notable changes to **MacExpert** — a native macOS controller for SPE Exper
   release page) / **Skip This Version** / **Remind Me Later**. **MacExpert → Check for
   Updates…** always reports; **Check for updates automatically** (default on) sits beside it.
   `MacExpert/UpdateChecker.swift` is byte-identical across VU2CPL's Swift apps. Nothing is
-  downloaded or installed automatically.
+  downloaded or installed automatically. Refined 2026-10-09: only a successful check (HTTP 200
+  with a `tag_name`) stores the time — a failed one (offline, timeout, any HTTP error including
+  the 403 rate limit, bad JSON) stores nothing and is retried at the next launch, or after 1 h
+  while running; an hourly timer repeats the daily check for as long as the app runs (never
+  while one of its dialogs is open); and a development build (version containing "dev", e.g.
+  `build-app.sh`'s `0.0.0-dev`) never checks on its own — Check for Updates… still works.
 - **CI + Release pipelines** (previously none): CI builds + tests the app and the plugin
   `.appex` on every PR; a GitHub Release is cut on **every merge to `main`** (auto patch-bump
   of the latest `vX.Y.Z` tag) with the universal app `.zip` and the `.radioplugin`. Tag-push

@@ -54,7 +54,7 @@ Full two-way mirror of the amp's LCD: cursor tracking, every sub-menu, per-band 
 - **Apple Silicon + Intel** — universal binary (arm64 + x86_64) via `build-app.sh`.
 - **Persisted settings** — connection mode, host/port, dev-panels toggle all saved across launches.
 - **Reconnect on launch** — opt-out checkbox in the Connection panel. When on (default), the app restores the last `connectionMode` and auto-connects to the last server (serial port or WebSocket host) at startup. Designed for the daily-driver case where the Pi server is always running.
-- **Update check** — about 10 s after launch, at most once a day, asks GitHub whether a newer release exists (see [Updates](#updates)). **MacExpert → Check for Updates…** checks right away; **Check for updates automatically** next to it turns the daily check off.
+- **Update check** — about 10 s after launch, then once a day while the app runs, asks GitHub whether a newer release exists (see [Updates](#updates)). **MacExpert → Check for Updates…** checks right away; **Check for updates automatically** next to it turns the daily check off.
 
 ## Requirements
 
@@ -74,9 +74,9 @@ Download `MacExpert-vX.Y.Z-universal.zip`, unzip, drag `MacExpert.app` to `/Appl
 
 ### Updates
 
-About 10 seconds after launch, at most once a day, MacExpert asks GitHub whether a newer release exists. If one does, it shows the new version and its release notes: **Download** opens the release page in your browser (nothing is downloaded or installed automatically), **Skip This Version** keeps the automatic check quiet about that release, **Remind Me Later** asks again on a later launch. **MacExpert → Check for Updates…** checks right away; untick **MacExpert → Check for updates automatically** to turn the daily check off. The only request is an anonymous `GET https://api.github.com/repos/vu2cpl/macexpert-spe/releases/latest` — no account or token, nothing sent beyond the app's name and version in the User-Agent, and nothing to do with the amplifier connection. The Suite plugin (`.radioplugin`) does not include the check. (In releases after v2.0.9.)
+About 10 seconds after launch, and then once a day for as long as it keeps running, MacExpert asks GitHub whether a newer release exists. If one does, it shows the new version and its release notes: **Download** opens the release page in your browser (nothing is downloaded or installed automatically), **Skip This Version** keeps the automatic check quiet about that release, **Remind Me Later** asks again at the next daily check. Only a successful check counts towards the day: one that fails (offline, timeout, rate limit, any other error) stays silent and is tried again about an hour later, or at the next launch. **MacExpert → Check for Updates…** checks right away; untick **MacExpert → Check for updates automatically** to turn the daily check off. The only request is an anonymous `GET https://api.github.com/repos/vu2cpl/macexpert-spe/releases/latest` — no account or token, nothing sent beyond the app's name and version in the User-Agent, and nothing to do with the amplifier connection. The Suite plugin (`.radioplugin`) does not include the check. (In releases after v2.0.9.)
 
-A local `build-app.sh` build is stamped `0.0.0-dev` unless `VERSION` is set, so its check always offers the latest release — set `VERSION`, choose **Skip This Version**, or untick the automatic check on dev builds.
+A local `build-app.sh` build is stamped `0.0.0-dev` unless `VERSION` is set. A version containing "dev" never checks on its own — no request at launch or later — so dev builds stay quiet; **Check for Updates…** still works on them (and, comparing against `0.0.0-dev`, always offers the latest release).
 
 ### Build via `build-app.sh` (universal binary, signed if you have the cert)
 
