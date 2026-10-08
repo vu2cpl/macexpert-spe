@@ -9,6 +9,14 @@ All notable changes to **MacExpert** — a native macOS controller for SPE Exper
 ## [Unreleased]
 
 ### Added
+- **Update check against GitHub releases** (standalone app only — the Suite plugin excludes
+  it): about 10 s after launch, at most once a day, one anonymous `GET` of
+  `api.github.com/repos/vu2cpl/macexpert-spe/releases/latest`; if the tag is newer than
+  `CFBundleShortVersionString`, a dialog with the release notes and **Download** (opens the
+  release page) / **Skip This Version** / **Remind Me Later**. **MacExpert → Check for
+  Updates…** always reports; **Check for updates automatically** (default on) sits beside it.
+  `MacExpert/UpdateChecker.swift` is byte-identical across VU2CPL's Swift apps. Nothing is
+  downloaded or installed automatically.
 - **CI + Release pipelines** (previously none): CI builds + tests the app and the plugin
   `.appex` on every PR; a GitHub Release is cut on **every merge to `main`** (auto patch-bump
   of the latest `vX.Y.Z` tag) with the universal app `.zip` and the `.radioplugin`. Tag-push
