@@ -70,11 +70,11 @@ Universal (arm64 + x86_64), Developer ID Application signed:
 
 [**Latest release →**](https://github.com/vu2cpl/macexpert-spe/releases/latest)
 
-Download `MacExpert-vX.Y.Z-universal.zip`, unzip, drag `MacExpert.app` to `/Applications`, double-click. The build is **Apple-notarized and stapled** so Gatekeeper accepts it on first launch with no warning.
+Download `MacExpert-X.Y.Z-macOS.zip` (or the `.dmg`), unzip, drag `MacExpert.app` to `/Applications`, double-click. Current release: [**v2.0.10**](https://github.com/vu2cpl/macexpert-spe/releases/tag/v2.0.10) (2026-10-09). Each release also carries `MacExpert-X.Y.Z.radioplugin` for the Amateur Radio Suite and a `SHA256SUMS` file. The build is **Apple-notarized and stapled** so Gatekeeper accepts it on first launch with no warning.
 
 ### Updates
 
-About 10 seconds after launch, and then once a day for as long as it keeps running, MacExpert asks GitHub whether a newer release exists. If one does, it shows the new version and its release notes: **Download** opens the release page in your browser (nothing is downloaded or installed automatically), **Skip This Version** keeps the automatic check quiet about that release, **Remind Me Later** asks again at the next daily check. Only a successful check counts towards the day: one that fails (offline, timeout, rate limit, any other error) stays silent and is tried again about an hour later, or at the next launch. **MacExpert → Check for Updates…** checks right away; untick **MacExpert → Check for updates automatically** to turn the daily check off. The only request is an anonymous `GET https://api.github.com/repos/vu2cpl/macexpert-spe/releases/latest` — no account or token, nothing sent beyond the app's name and version in the User-Agent, and nothing to do with the amplifier connection. The Suite plugin (`.radioplugin`) does not include the check. (In releases after v2.0.9.)
+About 10 seconds after launch, and then once a day for as long as it keeps running, MacExpert asks GitHub whether a newer release exists. If one does, it shows the new version and its release notes: **Download** opens the release page in your browser (nothing is downloaded or installed automatically), **Skip This Version** keeps the automatic check quiet about that release, **Remind Me Later** asks again at the next daily check. Only a successful check counts towards the day: one that fails (offline, timeout, rate limit, any other error) stays silent and is tried again about an hour later, or at the next launch. **MacExpert → Check for Updates…** checks right away; untick **MacExpert → Check for updates automatically** to turn the daily check off. The only request is an anonymous `GET https://api.github.com/repos/vu2cpl/macexpert-spe/releases/latest` — no account or token, nothing sent beyond the app's name and version in the User-Agent, and nothing to do with the amplifier connection. The Suite plugin (`.radioplugin`) does not include the check. (Since v2.0.10.)
 
 A local `build-app.sh` build is stamped `0.0.0-dev` unless `VERSION` is set. A version containing "dev" never checks on its own — no request at launch or later — so dev builds stay quiet; **Check for Updates…** still works on them (and, comparing against `0.0.0-dev`, always offers the latest release).
 
@@ -118,7 +118,7 @@ Releases are cut locally — there is no GitHub Actions release workflow. `relea
 ./release.sh --tag v2.1.0 --push --notarize   # full release flow
 ```
 
-`--push` requires the [GitHub CLI](https://cli.github.com/). `--notarize` requires a one-time keychain credential profile named `MacExpert-Notary`:
+`--push` publishes with GitHub's generated notes. For hand-written notes (as for v2.0.10), run `./release.sh --tag vX.Y.Z --notarize` (tags locally), `git push origin vX.Y.Z`, then `gh release create vX.Y.Z --notes-file … dist/MacExpert-X.Y.Z-macOS.{zip,dmg} dist/MacExpert-X.Y.Z.radioplugin dist/SHA256SUMS`, and download the assets back to check `SHA256SUMS`. The app `.zip` is made with `ditto --norsrc` (no AppleDouble `._*` entries). `--push` requires the [GitHub CLI](https://cli.github.com/). `--notarize` requires a one-time keychain credential profile named `MacExpert-Notary`:
 
 ```bash
 xcrun notarytool store-credentials "MacExpert-Notary" \
