@@ -11,6 +11,10 @@ removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
 ## [Unreleased]
 
 ## [2.0.11] — 2026-10-09
+Released 2026-10-09 as [v2.0.11](https://github.com/vu2cpl/macexpert-spe/releases/tag/v2.0.11):
+`MacExpert-2.0.11-macOS.{zip,dmg}` (universal, notarized + stapled, `sdk 27.0`),
+`MacExpert-2.0.11.radioplugin` and `SHA256SUMS`.
+
 ### Fixed
 - **v2.0.10 shipped a stale binary** — the June 2026 build, without the update check its
   notes describe. `build-app.sh` lipo'd `.build/{arm64,x86_64}-apple-macosx/release/MacExpert`,
