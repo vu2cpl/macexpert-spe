@@ -9,6 +9,22 @@ removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
 [GitHub releases](https://github.com/vu2cpl/macexpert-spe/releases).
 
 ## [Unreleased]
+
+## [2.0.11] — 2026-10-09
+### Fixed
+- **v2.0.10 shipped a stale binary** — the June 2026 build, without the update check its
+  notes describe. `build-app.sh` lipo'd `.build/{arm64,x86_64}-apple-macosx/release/MacExpert`,
+  which Swift 6.4's build system no longer writes (it writes `.build/out/Products/Release`), so
+  the June binaries still lying there were packaged. 2.0.11 is the first release that really
+  contains the update check. `build-app.sh` now builds both architectures in one SwiftPM
+  invocation, asks SwiftPM for the product path (`--show-bin-path`) after deleting the old
+  product, passes the real macOS SDK to the linker (Swift 6.4 otherwise records the deployment
+  target, 14.0, as the SDK), and stops unless the fresh binary has both architectures,
+  `minos 14.0`, `sdk` = the build SDK, no `@rpath` dylibs, the update checker, and is copied
+  byte-identically into a freshly assembled `.app` with the right `Info.plist` version. The test
+  target's resource bundle is no longer copied into the app. `release.sh` also checks the
+  published zip has no AppleDouble entries.
+
 ### Changed
 - **Update dialog: no focus, no default button for the automatic check** (Manoj, 2026-10-09).
   The window an automatic check puts up (at launch or from the hourly timer) appears in front
@@ -20,6 +36,9 @@ removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
   byte-identical across VU2CPL's Swift apps).
 
 ## [2.0.10] — 2026-10-09
+*Its release files contain a stale binary (the June 2026 build, without the update check) —
+use 2.0.11.*
+
 ### Added
 - **Update check against GitHub releases** (standalone app only — the Suite plugin excludes
   it): about 10 s after launch, at most once a day, one anonymous `GET` of

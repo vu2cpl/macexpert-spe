@@ -165,6 +165,11 @@ if [ "$DO_NOTARIZE" = "1" ]; then
     ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
 fi
 
+# The published zip (stapled, if --notarize) must carry no AppleDouble
+# sidecars: an unzipper that turns them into files breaks the signature.
+SIDECARS="$(zipinfo -1 "$ZIP" | grep -c -E '(^|/)(\._|__MACOSX)' || true)"
+[ "$SIDECARS" = "0" ] || { echo "ERROR: $ZIP contains $SIDECARS AppleDouble entries" >&2; exit 1; }
+
 # 7. Build the DMG. Sign it; with --notarize, also notarize + staple
 # it so `hdiutil mount` doesn't trigger a Gatekeeper prompt.
 echo "==> Building DMG"
