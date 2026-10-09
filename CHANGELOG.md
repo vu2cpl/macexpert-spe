@@ -9,6 +9,15 @@ removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
 [GitHub releases](https://github.com/vu2cpl/macexpert-spe/releases).
 
 ## [Unreleased]
+### Changed
+- **Update dialog: no focus, no default button for the automatic check** (Manoj, 2026-10-09).
+  The window an automatic check puts up (at launch or from the hourly timer) appears in front
+  without activating MacExpert or taking the keyboard, and none of its buttons is the default:
+  Return never opens the browser, **Download** needs a click, Esc / the close box is **Remind
+  Me Later**. **Check for Updates…** still brings it forward with the keyboard, also with no
+  default button. It was an app-modal `NSAlert` that became the key window mid-typing, where
+  Return pressed Download; it is now a non-modal panel (shared `UpdateChecker.swift`, still
+  byte-identical across VU2CPL's Swift apps).
 
 ## [2.0.10] — 2026-10-09
 ### Added
