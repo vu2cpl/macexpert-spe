@@ -11,7 +11,7 @@ removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
 ## [Unreleased]
 
 ### Added
-- **Connect through an authenticating TLS proxy.** A **Use TLS (wss)** checkbox next to the
+- **Connect through an authenticating TLS proxy** (#10, Vinod VU3ESV; this and the next four entries). A **Use TLS (wss)** checkbox next to the
   WebSocket host/port (persisted, default off) switches the URL to `wss://host:port/ws`, for
   spe-remote behind Caddy with TLS from a private CA and HTTP Basic auth. TLS relies on normal
   macOS trust (trust the CA in the login keychain) — no pinning, custom trust code or ATS
