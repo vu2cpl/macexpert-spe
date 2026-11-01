@@ -50,23 +50,44 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
     /// (`config_event:"radio"`) — in reply to `get_config` or after a
     /// `set_radio_config`. Drives the radio-settings picker.
     var onRadioConfig: ((RadioConfig) -> Void)?
+    /// Fired when the WebSocket upgrade is refused in a way retrying won't
+    /// fix — proxy login required / rejected (401), forbidden (403), an
+    /// untrusted TLS certificate, or a failed TLS handshake over `wss`.
+    /// Auto-reconnect is stopped first, so a bad
+    /// password can't tight-loop against the proxy.
+    var onFatalError: ((ProxyError) -> Void)?
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
-    private var url: URL
+    /// The upgrade request — URL plus, over `wss` only, the proxy's
+    /// `Authorization` header (built by `ProxyAuth.authorizedRequest`).
+    private var request: URLRequest
     private var receiveTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = false
     private var reconnectDelay: TimeInterval = 1.0
+    /// A message has arrived at least once on this connection object (the
+    /// view model makes a new one per Connect). A TLS-handshake failure
+    /// after that is likely transient (proxy restart, link drop mid-
+    /// handshake), so it keeps reconnecting instead of stopping.
+    private var hasEverReceived = false
     private let maxReconnectDelay: TimeInterval = 16.0
 
     init(url: URL) {
-        self.url = url
+        self.request = URLRequest(url: url)
+        super.init()
+    }
+
+    /// Connect with a prepared upgrade request. Pass it through
+    /// `ProxyAuth.authorizedRequest` first — that is what keeps
+    /// credentials off plain `ws://`.
+    init(request: URLRequest) {
+        self.request = request
         super.init()
     }
 
     func configure(url: URL) {
-        self.url = url
+        self.request = URLRequest(url: url)
     }
 
     func connect() async throws {
@@ -75,9 +96,13 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
 
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
+        // Proxy credentials come only from the request's Authorization
+        // header (wss only). No credential storage, so URLSession can't
+        // answer a 401 challenge with something saved elsewhere.
+        config.urlCredentialStorage = nil
         session = URLSession(configuration: config)
 
-        guard let ws = session?.webSocketTask(with: url) else {
+        guard let ws = session?.webSocketTask(with: request) else {
             throw ConnectionError.websocketFailed("Failed to create WebSocket task")
         }
 
@@ -154,8 +179,18 @@ final class WebSocketConnection: NSObject, ConnectionProvider, @unchecked Sendab
 
             do {
                 let message = try await ws.receive()
+                hasEverReceived = true
                 await handleMessage(message)
             } catch {
+                // A refused upgrade (401 / 403 / untrusted cert, or a TLS
+                // handshake that never worked) won't fix itself: stop
+                // reconnecting and report it instead.
+                if let fatal = ProxyAuth.classifyHandshakeFailure(
+                    response: ws.response, error: error, request: request),
+                   !(fatal == .tlsHandshakeFailed && hasEverReceived) {
+                    shouldReconnect = false
+                    onFatalError?(fatal)
+                }
                 await handleDisconnect()
                 break
             }
