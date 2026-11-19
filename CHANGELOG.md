@@ -8,7 +8,10 @@ All notable changes to **MacExpert** — a native macOS controller for SPE Exper
 removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
 [GitHub releases](https://github.com/vu2cpl/macexpert-spe/releases).
 
-## [Unreleased]
+## [2.0.13] — 2026-11-19
+Released 2026-11-19 as [v2.0.13](https://github.com/vu2cpl/macexpert-spe/releases/tag/v2.0.13):
+`MacExpert-2.0.13-macOS.{zip,dmg}` (universal, notarized + stapled), `MacExpert-2.0.13.radioplugin`
+and `SHA256SUMS`. All three PRs below (#10, #14, #15) are by Vinod VU3ESV.
 
 ### Added
 - **Connect through an authenticating TLS proxy** (#10, Vinod VU3ESV; this and the next four entries). A **Use TLS (wss)** checkbox next to the
@@ -32,7 +35,7 @@ removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
   read the same `ShackProxy` item, so **Save** and **Remove** change it for them too.
 
 ### Fixed
-- **No flashing while a WebSocket connect fails.** Each attempt reported "connected" right after
+- **No flashing while a WebSocket connect fails** (#14, Vinod VU3ESV; this and the next entry). Each attempt reported "connected" right after
   `resume()`, before the handshake, and retried every second because `connect()` reset the
   backoff on every attempt. Now:
   - an attempt counts as connected only on the server's first message;
@@ -44,7 +47,7 @@ removed on 2026-06-28. v2.0.4 – v2.0.9 are not itemised here; see the
 - Reconnect attempts reuse the connection's `URLSession` instead of creating a new one each time
   and never invalidating it; Disconnect still invalidates it.
 
-Follow-ups to the radio picker (#9), from the review:
+Follow-ups to the radio picker (#9), from the review (#15, Vinod VU3ESV):
 - **Apply waits for the Pi's settings.** In the RADIO sheet, Apply stays disabled until the `get_config` reply
   has arrived, so a quick Apply can no longer save the placeholder `{"kind":"none"}`. It also stays disabled while
   a field is invalid.
